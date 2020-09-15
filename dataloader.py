@@ -17,6 +17,9 @@ def read_df(df_file):
     return df
 
 
+'''
+process dataframe by smoothing the x and y coordinates
+'''
 def process_df(df):
     body_parts = pd.unique([col[0] for col in df.columns])
     smoothed_data = {}
@@ -29,6 +32,7 @@ def process_df(df):
     return smooth_df
 
 
+# normalize the coordinates to shared coordinate base - the tail-base at (0, 0), and nose on the Y axis. 
 def normalize_coordinates(df: pd.DataFrame):
     N = len(df)
     xy_df = df.drop(axis=1, columns='likelihood', level=1)
@@ -43,6 +47,8 @@ def normalize_coordinates(df: pd.DataFrame):
     return normalized_coords
 
 
+# A dataset of landmarks
+# args: landmarks file: .h5 file of landmarks, from DeepLabCut
 class LandmarkDataset(data.Dataset):
     def __init__(self, landmarks_file):
         super(LandmarkDataset, self).__init__()
@@ -58,15 +64,29 @@ class LandmarkDataset(data.Dataset):
     def __len__(self):
         return self.coords.shape[0]
 
-    
+
+'''
+A class for sequence data. Each item of the dataset id a sequence of length 'seqlen' from the 'data' time-series.
+for example, first item is data[0: seqlen], second is data[step: step + seqlen] etc.
+Args:
+    data: sequential data, for example numpy array, where the first dimension is time.
+    seqlen: length of each sequence item.
+    step: jump between one item and the next.
+    diff: if True, each item is made of differences between consecutive time steps. Therefore, length of each item is actually seqlen - 1
+          if False, each item is taken as is from the timeseries.
+    flatten: whether to flatten each item to 1D or not. 
+        If True, each item is 1D, which can be used in normal (non-recurrent or convolutional) Autoencoder.
+        If False, each item is 2D [timesteps, data_dimension], for use in convolutional or recurrent Autoencoder.
+'''
 class SequenceDataset(data.Dataset):
     eps = 1e-8
-    def __init__(self, data, seqlen=60, step=10, diff=True, flatten=True):
+    def __init__(self, data, seqlen=60, step=10, diff=False, flatten=True):
         super(SequenceDataset, self).__init__()
         self.seqlen, self.step, self.diff, self.flatten = seqlen, step, diff, flatten
         self.data = data
         self.mean, self.std = self._mean(), self._std()
 
+    # calculates mean for standardization
     def _mean(self):
         if self.diff:
             mean = np.zeros_like(self.data[0])
@@ -74,6 +94,7 @@ class SequenceDataset(data.Dataset):
             mean = self.data.mean(axis=0)
         return mean 
 
+    # calculates standard deviation for standardization
     def _std(self):
         if self.diff:
             std = np.diff(self.data, axis=0).std(axis=0)
