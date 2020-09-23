@@ -77,7 +77,7 @@ class PLAutoencoder(pl.LightningModule):
     def __init__(self, n_neurons=[203, 128, 128, 7], lr=1e-3, seqlen=30, landmark_files=[]):
         super(PLAutoencoder, self).__init__()
         self.landmark_files = landmark_files
-        self.seqlen = seqlen
+        self.seqlen = seqlens
         self.hparams = {'lr': lr}
         self.model = Autoencoder(n_neurons, seqlen)
 
