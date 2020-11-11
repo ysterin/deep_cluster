@@ -73,11 +73,13 @@ def process_df(df):
     return smooth_df
 
 
-# normalize the coordinates to shared coordinate base - the tail-base at (0, 0), and nose on the Y axis. 
-def normalize_coordinates(df: pd.DataFrame):
+# extract and possibly normalize the coordinates to shared coordinate base - the tail-base at (0, 0), and nose on the Y axis. 
+def extract_coordinates(df: pd.DataFrame, normalize: bool = True):
     N = len(df)
     xy_df = df.drop(axis=1, columns='likelihood', level=1)
     coords = xy_df.values.reshape(N, -1, 2)
+    if not normalize:
+        return coords
     base_tail_coords = xy_df.tailbase.values[:, np.newaxis, :]
     centered_coords = coords - base_tail_coords
     centered_nose_coords = xy_df.nose.values - xy_df.tailbase.values
@@ -91,12 +93,12 @@ def normalize_coordinates(df: pd.DataFrame):
 # A dataset of landmarks
 # args: landmarks file: .h5 file of landmarks, from DeepLabCut
 class LandmarkDataset(data.Dataset):
-    def __init__(self, landmarks_file):
+    def __init__(self, landmarks_file, normalize=True):
         super(LandmarkDataset, self).__init__()
         self.file = landmarks_file
         self.df = read_df(landmarks_file)
         self.df = process_df(self.df)
-        self.coords = normalize_coordinates(self.df)
+        self.coords = extract_coordinates(self.df, normalize)
         self.body_parts = pd.unique([col[0] for col in self.df.columns])
         
     def __getitem__(self, idx):

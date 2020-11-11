@@ -25,7 +25,7 @@ pd.set_option('mode.chained_assignment', None)
 # A simple autoencoder
 class Autoencoder(nn.Module):
     # n_neurons: the sizes of each layer in the encoder - the decoder has the same number of neurons in each layer, in reverse.
-    def __init__(self, n_neurons, seqlen=30):
+    def __init__(self, n_neurons, seqlen=30, batch_norm=False):
         super(Autoencoder, self).__init__()
         n_layers = len(n_neurons) - 1
         layers = list()
@@ -33,6 +33,8 @@ class Autoencoder(nn.Module):
             layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
             if i+1 < n_layers:
                 layers.append(nn.ELU())
+                if batch_norm:
+                    layers.append(nn.BatchNorm1D(n_neurons[i+1]))
         self.encoder = nn.Sequential(*layers)
         layers = list()
         n_neurons = n_neurons[::-1]
@@ -40,6 +42,8 @@ class Autoencoder(nn.Module):
             layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
             if i+1 < n_layers:
                 layers.append(nn.ELU())
+                if batch_norm:
+                    layers.append(nn.BatchNorm1D(n_neurons[i+1]))
         self.decoder = nn.Sequential(*layers)
         
     def forward(self, x):
@@ -47,7 +51,8 @@ class Autoencoder(nn.Module):
     
     # computes auto encoding loss for training and evaluation
     def shared_step(self, bx):
-        out = self.forward(bx)
+        z = self.encoder(bx)
+        out = self.decoder(z)
         loss = F.mse_loss(bx, out)
         return loss
     
@@ -71,14 +76,14 @@ class Autoencoder(nn.Module):
         return labels
     
     
-#pytorch - lightning module for training the autoencoder
+#pytorch-lightning module for training the autoencoder
 class PLAutoencoder(pl.LightningModule):
-    def __init__(self, n_neurons=[203, 128, 128, 7], lr=1e-3, seqlen=30, landmark_files=[]):
+    def __init__(self, landmark_files, n_neurons=[203, 128, 128, 7], lr=1e-3, seqlen=30, patience=20, batch_norm=False, wd=0.05):
         super(PLAutoencoder, self).__init__()
         self.landmark_files = landmark_files
         self.seqlen = seqlen
-        self.hparams = {'lr': lr}
-        self.model = Autoencoder(n_neurons, seqlen)
+        self.hparams = {'lr': lr, 'patience': patience, 'wd': wd}
+        self.model = Autoencoder(n_neurons, seqlen, batch_norm)
 
     def forward(self, x):
         return self.model(x)
@@ -93,12 +98,17 @@ class PLAutoencoder(pl.LightningModule):
                 pass
         coords = [sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for ds in landmark_datasets]
         N, n_coords, _ = coords[0].shape
+        self.coords = coords
         train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in coords]
         valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in coords]
         train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for data in train_data]
         valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=10, diff=False) for data in valid_data]
         self.train_ds = ConcatDataset(train_dsets)
         self.valid_ds = ConcatDataset(valid_dsets)
+        all_data = [crds.reshape(-1, n_coords*2) for crds in coords]
+        all_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for data in all_data]
+        self.all_ds = ConcatDataset(all_dsets)
+        
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=256, shuffle=True, num_workers=4)
@@ -108,19 +118,19 @@ class PLAutoencoder(pl.LightningModule):
         return DataLoader(self.valid_ds, batch_size=256, shuffle=False, num_workers=4)
 
     def configure_optimizers(self):
-        opt = torch.optim.Adam(self.parameters(), self.hparams['lr'])
-        sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.2 ,patience=20, verbose=True, min_lr=1e-6)
-        scheduler = {'scheduler': sched, 'interval': 'epoch', 'monitor': 'val_checkpoint_on', 'reduce_on_plateau': True}
-        return [opt], [scheduler]
+        opt = torch.optim.AdamW(self.parameters(), self.hparams['lr'], weight_decay=self.hparams['wd'])
+#         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.2 ,patience=self.hparams['patience'], verbose=True, min_lr=1e-6)
+#         scheduler = {'scheduler': sched, 'interval': 'epoch', 'monitor': 'val_checkpoint_on', 'reduce_on_plateau': True}
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: 0.85**(epoch//10))
+        return [opt], [sched]    
+#     return [opt], [scheduler]
     
     def training_step(self, batch, batch_idx):
         loss = self.model.shared_step(batch)
-        results = pl.TrainResult(loss)
-        results.log('train_loss', loss, prog_bar=True)
-        return results
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         loss = self.model.shared_step(batch)
-        results = pl.EvalResult(checkpoint_on=loss)
-        results.log('val_loss', loss, prog_bar=True)
-        return results
+        self.log('val_loss', loss, prog_bar=True)
+        return loss

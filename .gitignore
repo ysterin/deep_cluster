@@ -1,5 +1,15 @@
 **/*.mp4
 **/logs
+
+
+**/*.jpg
+**/*.png
 lightning_logs
+clips/
+deep_cluster/
+wandb/
+models/
+plots/
+
 
 clusters/
