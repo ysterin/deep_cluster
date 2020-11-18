@@ -130,6 +130,7 @@ class LatentDistribution(nn.Module):
             sigma = self.sigma
         else:
             logvar = self.logvar_fc(x)
+            logvar = torch.clamp(logvar, min=-12, max=8)
             sigma = torch.exp(logvar / 2) + self.eps
         if self.distribution == 'normal':
             self.dist = Normal(mu, sigma)
@@ -207,7 +208,7 @@ class VaDE(pl.LightningModule):
         self.mixture_logits.data = torch.Tensor(np.log(init_gmm.weights_))
         self.mu_c.data = torch.Tensor(init_gmm.means_.T)
         self.logvar_c.data = torch.Tensor(init_gmm.covariances_.T).log()
-#         self.sigma_c.data = torch.Tensor(init_gmm.covariances_.T)
+#         self.sigma_c.data = torch.Tensor(init_gmm.covariances_.T).sqrt()
         self.encoder.load_state_dict(pretrain_model.encoder[:-1].state_dict())
         self.decoder.load_state_dict(pretrain_model.decoder[:-1].state_dict())
         self.latent_dist.mu_fc.load_state_dict(pretrain_model.encoder[-1].state_dict())
@@ -254,6 +255,7 @@ class VaDE(pl.LightningModule):
         self.log('ent_loss2', - ent_loss2.mean())
         self.log('crosent_loss1', - crosent_loss1.mean())
         self.log('crosent_loss2', - crosent_loss2.mean())
+        self.log('log likelihood', gmm.log_prob(z).mean())
 
         ############################################################################
         kl_loss = - crosent_loss1 - crosent_loss2 - ent_loss1 - ent_loss2
@@ -270,12 +272,13 @@ class VaDE(pl.LightningModule):
                 landmark_datasets.append(ds)
             except OSError:
                 pass
+        self.landmark_datasets = landmark_datasets
         coords = [sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for ds in landmark_datasets]
         self.coords = coords
         N, n_coords, _ = coords[0].shape
         train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in coords]
         valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in coords]
-        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=10, diff=False) for data in train_data]
+        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for data in train_data]
         valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=20, diff=False) for data in valid_data]
         self.train_ds = ConcatDataset(train_dsets)
         self.valid_ds = ConcatDataset(valid_dsets)
@@ -293,7 +296,7 @@ class VaDE(pl.LightningModule):
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), self.hparams['lr'], weight_decay=0.01)
-        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: 0.9**(epoch//10))
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: (epoch+1)/10 if epoch < 10 else 0.9**(epoch//10))
         return [opt], [sched]
     
     def training_step(self, batch, batch_idx):
