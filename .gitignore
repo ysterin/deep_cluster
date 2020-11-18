@@ -11,6 +11,12 @@ wandb/
 models/
 plots/
 .ipynb*
+__pycache__
+
+
+
+
+
 
 
 clusters/
