@@ -160,7 +160,7 @@ def clustering_accuracy(gt, labels):
 
 
 class VaDE(pl.LightningModule):
-    def __init__(self, landmark_files, seqlen, n_neurons=[784, 512, 256, 10], batch_norm=True, k=10, lr=1e-3, device='cuda'):
+    def __init__(self, landmark_files, seqlen, n_neurons=[784, 512, 256, 10], batch_norm=True, k=10, lr=1e-3, device='cuda', pretrain=True):
         super(VaDE, self).__init__()
         self.k = k
         self.seqlen = seqlen
@@ -191,7 +191,8 @@ class VaDE(pl.LightningModule):
         self.sigma = nn.Parameter(torch.ones(1)*np.sqrt(0.02), requires_grad=False)
         # self.sigma = 1
         self.out_dist = LatentDistribution(n_neurons[-2], n_neurons[-1], sigma=self.sigma, distribution='cauchy')
-        self.init_params()
+        if pretrain:
+            self.init_params()
 
 
     def init_params(self):
@@ -322,6 +323,7 @@ class VaDE(pl.LightningModule):
     def cluster_data(self, dl=None):
         if not dl:
             dl = self.val_dataloader()
+        self.sigma_c = torch.exp(self.logvar_c / 2)
         vade_gmm = D.MixtureSameFamily(D.Categorical(logits=self.mixture_logits), D.Normal(self.mu_c, self.sigma_c))
         labels = []
         X_encoded = []
