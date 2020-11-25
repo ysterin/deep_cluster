@@ -61,6 +61,30 @@ class Animation(tk.Canvas):
                 self.update()
 
 
+class App(tk.Frame):
+    def __init__(self, root, clips, fps=30, *args, **kwargs):
+        tk.Frame.__init__(self, root, *args, **kwargs)
+        self.window = tk.PanedWindow(self)
+        n_frames = int(np.mean([len(clip) for clip in clips]))
+        self.anchor_anim = Animation(self, clips[0], fps=fps, n_frames=n_frames, width=100, height=240)
+        self.window.add(self.anchor_anim)
+        pos_frame = tk.Frame(self.window)
+        neg_frame = tk.Frame(self.window)
+        choice_var = tk.BooleanVar(self)
+        radio_button_1 = tk.Radiobutton(pos_frame, var=choice_var, value=True)
+        radio_button_2 = tk.Radiobutton(neg_frame, var=choice_var, value=False)
+        self.pos_anim = Animation(pos_frame, clips[1], fps=fps, n_frames=n_frames, width=100, height=200)
+        self.neg_anim = Animation(neg_frame, clips[2], fps=fps, n_frames=n_frames, width=100, height=200)
+        self.pos_anim.pack()
+        self.neg_anim.pack()
+        radio_button_1.pack()
+        radio_button_2.pack()
+        self.window.add(pos_frame)
+        self.window.add(neg_frame)
+        self.window.pack()
+        self.pack()
+
+
 data_root = Path("/home/orel/Storage/Data/K6/")
 landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
 video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
@@ -69,11 +93,9 @@ video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
 def __main__():
     root = tk.Tk()
     video = Video(video_file)
-    clip = video[10000:11000:20]
-    clips = [video[1000*i: 1000*i+ 3000 + 200*i: 10] for i in range(3, 7)]
-    # anim1 = AnimationCanvas(root, video[10000:11000:2], width=180, height=180)
-    # anim2 = AnimationCanvas(root, video[10000:11000:2], width=180, height=180)
-    anims = [Animation(root, clips[i], n_frames=120, fps=60, width=250, height=250) for i in range(4)]
+    clips = [video[1000*i: 1000*i + 3000 + 200*i: 10] for i in range(3, 7)]
+    app = App(root, clips[:3], fps=30)
+    # anims = [Animation(root, clips[i], n_frames=120, fps=60, width=250, height=250) for i in range(4)]
     # anim1.pack()
     # anim2.pack()
     root.mainloop()
