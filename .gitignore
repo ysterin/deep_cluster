@@ -1,7 +1,7 @@
 **/*.mp4
 **/logs
 
-
+**/*.pyc
 **/*.jpg
 **/*.png
 lightning_logs
@@ -10,8 +10,9 @@ deep_cluster/
 wandb/
 models/
 plots/
-.ipynb*
-__pycache__
+.ipynb_*
+
+__pycache__/
 
 
 
