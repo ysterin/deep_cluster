@@ -1,16 +1,14 @@
 import sys
 # sys.path.append('..')
 import os
-print(os.getcwd())
 import numpy as np
 import cv2 as cv
 from PIL import Image
 from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
-from dataloader import LandmarkDataset, SequenceDataset
+from deep_cluster.dataloader import LandmarkDataset, SequenceDataset
 from matplotlib import pyplot as plt
-import os
 from collections import Counter
 import torch
 from torch.utils.data import ConcatDataset
@@ -64,7 +62,7 @@ class Animation(tk.Canvas):
                 self.update()
 
 
-class App(tk.Frame):
+class ClipsDisplay(tk.Frame):
     def __init__(self, root, clips, fps=30, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.window = tk.PanedWindow(self)
@@ -97,7 +95,7 @@ def __main__():
     root = tk.Tk()
     video = Video(video_file)
     clips = [video[1000*i: 1000*i + 3000 + 200*i: 10] for i in range(3, 7)]
-    app = App(root, clips[:3], fps=30)
+    app = ClipsDisplay(root, clips[:3], fps=30)
     # anims = [Animation(root, clips[i], n_frames=120, fps=60, width=250, height=250) for i in range(4)]
     # anim1.pack()
     # anim2.pack()

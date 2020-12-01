@@ -3,7 +3,7 @@ from PIL import Image
 from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
-from dataloader import LandmarkDataset, SequenceDataset
+from deep_cluster.dataloader import LandmarkDataset, SequenceDataset
 import os
 import numpy as np
 import torch
