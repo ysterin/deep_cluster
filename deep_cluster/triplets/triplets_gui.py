@@ -24,6 +24,8 @@ from landmarks_video import Video, LandmarksVideo, color_pallete
 from sample_triplets import Segment, triplets_segments_gen, load_segments
 import math
 from contextlib import contextmanager
+import pandas as pd
+
 
 @contextmanager
 def timethis(label):
@@ -34,7 +36,7 @@ def timethis(label):
 
 
 def get_seg_clip(vid, seg, n_frames, fps=120):
-    frames = vid[seg.start_frame: seg.start_frame + seg.n_frames: 240//fps]
+    frames = vid[seg.start_frame: seg.start_frame + seg.n_frames: 240 // fps]
     frames = list(frames)
     if n_frames < len(frames):
         n_frames_to_discard = len(frames) - n_frames
@@ -54,6 +56,8 @@ frames: list of frames to animate, each frame is a numpy array.
 n_frames: number of frames to show in the animation - if less then length of frames, discard frames from beginning
     and end as needed. if more, pad with same frame in beginning and end.
 '''
+
+
 class Animation(tk.Canvas):
     def __init__(self, root, frames, n_frames=None, fps=30, *args, **kwargs):
         self.n_frames = len(frames)
@@ -108,19 +112,22 @@ class ClipsDisplay(tk.Frame):
         self.anchor_anim.pack(side=tk.LEFT)
         pos_frame = tk.Frame(self.window)
         neg_frame = tk.Frame(self.window)
-        choice_var = tk.BooleanVar(self)
-        radio_button_1 = tk.Radiobutton(pos_frame, var=choice_var, value=True)
-        radio_button_2 = tk.Radiobutton(neg_frame, var=choice_var, value=False)
+        self.choice_var = tk.IntVar()
+        radio_button_1 = tk.Radiobutton(pos_frame, var=self.choice_var, value=1)
+        radio_button_2 = tk.Radiobutton(neg_frame, var=self.choice_var, value=2)
+        radio_button_3 = tk.Radiobutton(self.window, text="Uncertain", var=self.choice_var, value=3)
         self.pos_anim = Animation(pos_frame, clips[1], fps=fps, n_frames=n_frames, width=100, height=200)
         self.neg_anim = Animation(neg_frame, clips[2], fps=fps, n_frames=n_frames, width=100, height=200)
         self.pos_anim.pack()
         self.neg_anim.pack()
         radio_button_1.pack()
         radio_button_2.pack()
+        radio_button_3.pack(side=tk.RIGHT)
         pos_frame.pack(side=tk.LEFT)
         neg_frame.pack(side=tk.LEFT)
         self.window.pack()
         self.pack()
+        # print("the chosen answer is: "+str(choice_var.get()))
 
     # def destroy(self):
     #     self.anchor_anim.destroy()
@@ -130,8 +137,11 @@ class ClipsDisplay(tk.Frame):
 
 
 class App(tk.Frame):
-    def __init__(self, root, video, triplet_segment_gen, *args, **kwargs):
+    def __init__(self, root, video, triplet_segment_gen, model_dir, landmark_file, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
+        self.data_frame = pd.DataFrame(columns=["cluster", "segments", "result", "model"])
+        self.model_dir = model_dir
+        self.landmark_file = landmark_file
         self.video = video
         self.triplets_gen = triplet_segment_gen
         self.display = tk.Frame()
@@ -143,32 +153,56 @@ class App(tk.Frame):
         self.pack()
 
     def reload_display(self):
+        try:
+            result = self.display.choice_var.get()
+            self.update_results(result)
+        except Exception as e:
+            print(e)
+            pass
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=30)
         self.display.pack(side=tk.TOP)
         self.load_clips()
 
+    def update_results(self, result):
+        segments = [[self.anchor.start_frame, self.anchor.n_frames], [self.pos.start_frame, self.pos.n_frames],
+                    [self.neg.start_frame, self.neg.n_frames]]
+        str_result = ""
+        if result == 1:
+            str_result = "Success"
+        if result == 2:
+            str_result = "Failure"
+        if result == 3:
+            str_result = "Uncertain"
+        row = pd.DataFrame({"cluster": self.anchor.cluster_id, "segments": segments, "result": str_result,
+                            "model": self.model_dir})
+        self.data_frame = self.data_frame.append(row)
+        print(self.data_frame)
 
     def load_clips(self):
         print("start load clips")
-        anchor, pos, neg = next(self.triplets_gen)
-        self.clips = [get_seg_clip(self.video, seg, n_frames=60, fps=120) for seg in [anchor, pos, neg]]
+        self.anchor, self.pos, self.neg = next(self.triplets_gen)
+        self.clips = [get_seg_clip(self.video, seg, n_frames=60, fps=120) for seg in [self.anchor, self.pos, self.neg]]
         print("finish load clips")
 
 
+def updateCSV(results):
+    keys = ["cluster", "segments", "success", "model"]
+
+
 data_root = Path("/home/orel/Storage/Data/K6/")
-landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
-video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
+landmark_file = data_root / '2020-03-23' / 'Down' / '0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
+video_file = data_root / '2020-03-23' / 'Down' / '0008.MP4'
 
 
 def __main__():
     root = tk.Tk()
-    video = LandmarksVideo(data_root/'2020-03-23'/'Down')
-    clips = [video[1000*i: 1000*i + 3000 + 200*i: 10] for i in range(3, 7)]
+    video = LandmarksVideo(data_root / '2020-03-23' / 'Down')
     # app = ClipsDisplay(root, clips[:3], fps=30)
     segments = load_segments(model_dir='../models/11_03', landmark_file=landmark_file)
     triplet_gen = triplets_segments_gen(segments, 30)
-    app = App(root, video, triplet_gen)
+    app = App(root, video, triplet_gen, '../models/11_03', landmark_file)
+
     # anims = [Animation(root, clips[i], n_frames=120, fps=60, width=250, height=250) for i in range(4)]
     # anim1.pack()
     # anim2.pack()
