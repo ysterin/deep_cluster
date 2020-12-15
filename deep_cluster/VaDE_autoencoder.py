@@ -16,6 +16,7 @@ import math
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 from sklearn import metrics
+from pytorch_lightning.callbacks import Callback
 
 
 
@@ -90,6 +91,7 @@ class SimpleAutoencoder(pl.LightningModule):
 
     def encode_ds(self, ds):
         dl = DataLoader(ds, batch_size=1024, num_workers=4, shuffle=False)
+        self.eval()
         encoded = []
         with torch.no_grad():
             for batch in dl:
@@ -323,6 +325,7 @@ class VaDE(pl.LightningModule):
     def cluster_data(self, dl=None):
         if not dl:
             dl = self.val_dataloader()
+        self.eval()
         self.sigma_c = torch.exp(self.logvar_c / 2)
         vade_gmm = D.MixtureSameFamily(D.Categorical(logits=self.mixture_logits), D.Normal(self.mu_c, self.sigma_c))
         labels = []
@@ -337,4 +340,23 @@ class VaDE(pl.LightningModule):
         labels = torch.cat(labels).cpu().numpy()
         X_encoded = torch.cat(X_encoded).cpu().numpy()
         return labels, X_encoded
+    
+
+from collections import Counter
+def entropy(labels):
+    counter = Counter(labels)
+    value_counts = np.array(list(counter.values()))
+    probs = value_counts / value_counts.sum()
+    return - (probs * np.log(probs)).sum()
+
+class ClusteringEvaluationCallback(Callback):
+    def __init__(self):
+        super(ClusteringEvaluationCallback, self).__init__()
+
+    def on_epoch_start(self, trainer, pl_module):
+        labels, _ = pl_module.cluster_data()
+#         nmi, acc1, acc2 = metrics.normalized_mutual_info_score(labels, gt), clustering_accuracy(labels, gt), clustering_accuracy(gt, labels)
+        ent = entropy(labels)
+        trainer.logger.log_metrics({'Empirical Entropy': ent})
+
 

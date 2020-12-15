@@ -166,7 +166,7 @@ def __main__():
     video = LandmarksVideo(data_root/'2020-03-23'/'Down')
     clips = [video[1000*i: 1000*i + 3000 + 200*i: 10] for i in range(3, 7)]
     # app = ClipsDisplay(root, clips[:3], fps=30)
-    segments = load_segments(model_dir='../models/11_03', landmark_file=landmark_file)
+    segments = load_segments(model_dir='../models/vade_11_24', landmark_file=landmark_file)
     triplet_gen = triplets_segments_gen(segments, 30)
     app = App(root, video, triplet_gen)
     # anims = [Animation(root, clips[i], n_frames=120, fps=60, width=250, height=250) for i in range(4)]

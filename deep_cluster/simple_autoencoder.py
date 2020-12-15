@@ -15,7 +15,7 @@ from torch.utils import data
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from dataloader import LandmarkDataset, SequenceDataset
+from dataloader import LandmarkDataset, SequenceDataset, LandmarkWaveletDataset
 from sklearn.cluster import KMeans
 from sklearn.metrics import normalized_mutual_info_score, confusion_matrix, accuracy_score
 
@@ -25,7 +25,7 @@ pd.set_option('mode.chained_assignment', None)
 # A simple autoencoder
 class Autoencoder(nn.Module):
     # n_neurons: the sizes of each layer in the encoder - the decoder has the same number of neurons in each layer, in reverse.
-    def __init__(self, n_neurons, seqlen=30, batch_norm=False):
+    def __init__(self, n_neurons, batch_norm=False):
         super(Autoencoder, self).__init__()
         n_layers = len(n_neurons) - 1
         layers = list()
@@ -83,7 +83,7 @@ class PLAutoencoder(pl.LightningModule):
         self.landmark_files = landmark_files
         self.seqlen = seqlen
         self.hparams = {'lr': lr, 'patience': patience, 'wd': wd}
-        self.model = Autoencoder(n_neurons, seqlen, batch_norm)
+        self.model = Autoencoder(n_neurons, batch_norm)
 
     def forward(self, x):
         return self.model(x)
@@ -124,6 +124,55 @@ class PLAutoencoder(pl.LightningModule):
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: 0.85**(epoch//10))
         return [opt], [sched]    
 #     return [opt], [scheduler]
+    
+    def training_step(self, batch, batch_idx):
+        loss = self.model.shared_step(batch)
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        loss = self.model.shared_step(batch)
+        self.log('val_loss', loss, prog_bar=True)
+        return loss
+    
+    
+#pytorch-lightning module for training the autoencoder
+class PLWaveletAutoencoder(pl.LightningModule):
+    def __init__(self, landmark_files, n_neurons=[480, 128, 128, 7], lr=1e-3, n_wavelets=20, patience=20, batch_norm=False, wd=0.05):
+        super(PLWaveletAutoencoder, self).__init__()
+        self.landmark_files = landmark_files
+        self.n_wavelets = n_wavelets
+        self.hparams = {'lr': lr, 'patience': patience, 'wd': wd}
+        self.model = Autoencoder(n_neurons, batch_norm)
+
+    def forward(self, x):
+        return self.model(x)
+    
+    def prepare_data(self):
+        datasets = []
+        for file in self.landmark_files:
+            try:
+                ds = LandmarkWaveletDataset(file)
+                datasets.append(ds)
+            except OSError:
+                pass
+        train_dsets = [ds[:int(0.8*len(ds))] for ds in datasets]
+        valid_dsets = [ds[int(0.8*len(ds)):] for ds in datasets]
+        self.train_ds = ConcatDataset(train_dsets)
+        self.valid_ds = ConcatDataset(valid_dsets)
+        self.all_ds = ConcatDataset(datasets)  
+        self.datasets = datasets
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds, batch_size=256, shuffle=True, num_workers=8)
+
+    def val_dataloader(self):
+        return DataLoader(self.valid_ds, batch_size=256, shuffle=False, num_workers=8)
+
+    def configure_optimizers(self):
+        opt = torch.optim.AdamW(self.parameters(), self.hparams['lr'], weight_decay=self.hparams['wd'])
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: 0.85**(epoch//10))
+        return [opt], [sched]    
     
     def training_step(self, batch, batch_idx):
         loss = self.model.shared_step(batch)
