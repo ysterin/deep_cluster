@@ -1,4 +1,5 @@
 import torch
+from torch import utils
 from torch.utils import data
 import pandas as pd
 import numpy as np
@@ -111,13 +112,13 @@ class LandmarkDataset(data.Dataset):
 def calc_wavelet_transform(feature_data, min_width=12, max_width=120, n_waves=25):
     wavelet_widths = np.logspace(np.log10(min_width), np.log10(max_width), n_waves)
     transformed = sig.cwt(feature_data, sig.morlet2, widths=wavelet_widths)
-    transformed /= wavelet_widths[:,np.newaxis]
+    transformed /= np.sqrt(wavelet_widths[:,np.newaxis])
     return np.abs(transformed)
 
 
 # A dataset of wavelets of landmarks.
 # args: landmarks file: .h5 file of landmarks, from DeepLabCut
-class LandmarkWaveletDataset(data.Dataset):
+class LandmarkWaveletDataset(utils.data.Dataset):
     def __init__(self, landmarks_file, normalize=True, data=None, eps=3e-2):
         super(LandmarkWaveletDataset, self).__init__()
         self.file = landmarks_file
@@ -126,9 +127,11 @@ class LandmarkWaveletDataset(data.Dataset):
         if data is None:
             coords = sig.decimate(self.landmarks.coords, q=4, axis=0)
             coords = coords.reshape((len(coords), -1))
-            self.data = [calc_wavelet_transform(feat_data, min_width=2, max_width=30, n_waves=20) for feat_data in coords.T]
+            self.data = [calc_wavelet_transform(feat_data, min_width=2, max_width=60, n_waves=20) for feat_data in coords.T]
             self.data = np.concatenate(self.data, axis=0).T
-            self.data = np.log(self.data + eps).astype(np.float32) + 2.0
+            self.data /= (self.data.sum(axis=0, keepdims=True) + 1e-8)
+#             self.data = np.sqrt(self.data)
+            self.data = np.log(self.data + 1e-6).astype(np.float32) - 12
         else:
             self.data = data
         
@@ -139,7 +142,6 @@ class LandmarkWaveletDataset(data.Dataset):
     
     def __len__(self):
         return self.data.shape[0]
-
 
     
     
