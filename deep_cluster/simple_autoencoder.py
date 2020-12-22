@@ -25,8 +25,12 @@ pd.set_option('mode.chained_assignment', None)
 # A simple autoencoder
 class Autoencoder(nn.Module):
     # n_neurons: the sizes of each layer in the encoder - the decoder has the same number of neurons in each layer, in reverse.
-    def __init__(self, n_neurons, batch_norm=False):
+    def __init__(self, n_neurons, batch_norm=False, loss_func=None):
         super(Autoencoder, self).__init__()
+        if loss_func:
+            self.loss_func = loss_func
+        else:
+            loss_func = F.mse_loss
         n_layers = len(n_neurons) - 1
         layers = list()
         for i in range(n_layers):
@@ -53,7 +57,7 @@ class Autoencoder(nn.Module):
     def shared_step(self, bx):
         z = self.encoder(bx)
         out = self.decoder(z)
-        loss = F.mse_loss(bx, out)
+        loss = self.loss_func(bx, out)
         return loss
     
     # encode data to the hidden dimension.
@@ -136,6 +140,16 @@ class PLAutoencoder(pl.LightningModule):
         return loss
     
     
+def kl_div(p, q):
+    return (p * (p.log() - q.log())).sum(dim=-1)
+    
+    
+def DKL_softmax(bx, bx_recon):
+    bx_probs = F.softmax(bx, dim=-1)
+    recon_probs = F.softmax(bx_recon, dim=-1)
+    return kl_div(bx_probs, recon_probs).mean()
+   
+    
 #pytorch-lightning module for training the autoencoder
 class PLWaveletAutoencoder(pl.LightningModule):
     def __init__(self, landmark_files, n_neurons=[480, 128, 128, 7], lr=1e-3, n_wavelets=20, patience=20, batch_norm=False, wd=0.05):
@@ -143,7 +157,7 @@ class PLWaveletAutoencoder(pl.LightningModule):
         self.landmark_files = landmark_files
         self.n_wavelets = n_wavelets
         self.hparams = {'lr': lr, 'patience': patience, 'wd': wd}
-        self.model = Autoencoder(n_neurons, batch_norm)
+        self.model = Autoencoder(n_neurons, batch_norm, loss_func=DKL_softmax)
 
     def forward(self, x):
         return self.model(x)
