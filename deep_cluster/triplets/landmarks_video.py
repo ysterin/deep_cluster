@@ -95,8 +95,9 @@ def get_files(vid_dir):
         if re.match(r'\d*\.MP4', file):
             vid_file = vid_dir / file
             vid_id = file[:4]
-            landmarks_file = vid_dir / f'{vid_id}DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
-            return vid_file, landmarks_file
+        elif re.match(r'\d+DeepCut.*\.h5', file):
+            landmarks_file = vid_dir / file
+    return vid_file, landmarks_file
 
 
 color_pallete = [(0, 204, 0), (255, 255, 0), (255, 102, 102), (255, 102, 178), (102, 0, 204), (0, 0, 204),
@@ -162,3 +163,6 @@ class LandmarksVideo(object):
 
 
 
+if __name__=='__main__':
+    vid_dir = data_root / '2020-03-23' / 'Down'
+    print(get_files(vid_dir))

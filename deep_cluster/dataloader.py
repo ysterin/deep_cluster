@@ -111,13 +111,14 @@ class LandmarkDataset(data.Dataset):
 def calc_wavelet_transform(feature_data, min_width=12, max_width=120, n_waves=25):
     wavelet_widths = np.logspace(np.log10(min_width), np.log10(max_width), n_waves)
     transformed = sig.cwt(feature_data, sig.morlet2, widths=wavelet_widths)
+    transformed /= wavelet_widths[:,np.newaxis]
     return np.abs(transformed)
 
 
 # A dataset of wavelets of landmarks.
 # args: landmarks file: .h5 file of landmarks, from DeepLabCut
 class LandmarkWaveletDataset(data.Dataset):
-    def __init__(self, landmarks_file, normalize=True, data=None, mean=None, std=None):
+    def __init__(self, landmarks_file, normalize=True, data=None, eps=3e-2):
         super(LandmarkWaveletDataset, self).__init__()
         self.file = landmarks_file
         self.normalize = normalize
@@ -126,19 +127,19 @@ class LandmarkWaveletDataset(data.Dataset):
             coords = sig.decimate(self.landmarks.coords, q=4, axis=0)
             coords = coords.reshape((len(coords), -1))
             self.data = [calc_wavelet_transform(feat_data, min_width=2, max_width=30, n_waves=20) for feat_data in coords.T]
-            self.data = np.concatenate(self.data, axis=0).astype(np.float32).T
-            self.mean, self.std = self.data.mean(axis=0), self.data.std(axis=0) + 1e-8
+            self.data = np.concatenate(self.data, axis=0).T
+            self.data = np.log(self.data + eps).astype(np.float32) + 2.0
         else:
             self.data = data
-            self.mean, self.std = mean, std        
         
     def __getitem__(self, idx):
         if isinstance(idx, slice):
-            return LandmarkWaveletDataset(self.file, self.normalize, data=self.data[idx], mean=self.mean, std=self.std)
-        return (self.data[idx] - self.mean) / self.std
+            return LandmarkWaveletDataset(self.file, self.normalize, data=self.data[idx])
+        return self.data[idx]
     
     def __len__(self):
         return self.data.shape[0]
+
 
     
     
