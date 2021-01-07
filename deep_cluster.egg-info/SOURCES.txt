@@ -1,14 +1,15 @@
+README.md
 setup.py
 deep_cluster/VaDE_autoencoder.py
 deep_cluster/__init__.py
 deep_cluster/clip_videos.py
 deep_cluster/dataloader.py
 deep_cluster/simple_autoencoder.py
-deep_cluster/test.py
 deep_cluster.egg-info/PKG-INFO
 deep_cluster.egg-info/SOURCES.txt
 deep_cluster.egg-info/dependency_links.txt
 deep_cluster.egg-info/top_level.txt
 deep_cluster/triplets/__init__.py
 deep_cluster/triplets/landmarks_video.py
+deep_cluster/triplets/sample_triplets.py
 deep_cluster/triplets/triplets_gui.py

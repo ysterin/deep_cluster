@@ -112,15 +112,16 @@ class ClipsDisplay(tk.Frame):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.window = tk.Frame(self)
         n_frames = int(np.mean([len(clip) for clip in clips]))
-        self.anchor_anim = Animation(self, clips[0], fps=fps, n_frames=n_frames, rescale=2.)#, width=100, height=240)
+        self.anchor_anim = Animation(self, clips[0], fps=fps, n_frames=n_frames, rescale=1.5)#, width=100, height=240)
         self.anchor_anim.pack(side=tk.LEFT)
         pos_frame = tk.Frame(self.window)
         neg_frame = tk.Frame(self.window)
-        choice_var = tk.BooleanVar(self)
-        radio_button_1 = tk.Radiobutton(pos_frame, var=choice_var, value=True)
-        radio_button_2 = tk.Radiobutton(neg_frame, var=choice_var, value=False)
-        self.pos_anim = Animation(pos_frame, clips[1], fps=fps, n_frames=n_frames, rescale=2.)#, width=100, height=200)
-        self.neg_anim = Animation(neg_frame, clips[2], fps=fps, n_frames=n_frames, rescale=2.)#, width=100, height=200)
+        choice_var = tk.IntVar(self)
+        self.choice_var = choice_var
+        radio_button_1 = tk.Radiobutton(pos_frame, var=choice_var, value=1)
+        radio_button_2 = tk.Radiobutton(neg_frame, var=choice_var, value=2)
+        self.pos_anim = Animation(pos_frame, clips[1], fps=fps, n_frames=n_frames, rescale=1.5)#, width=100, height=200)
+        self.neg_anim = Animation(neg_frame, clips[2], fps=fps, n_frames=n_frames, rescale=1.5)#, width=100, height=200)
         self.pos_anim.pack()
         self.neg_anim.pack()
         radio_button_1.pack(side=tk.BOTTOM)
@@ -136,37 +137,68 @@ class ClipsDisplay(tk.Frame):
     #     self.neg_anim.destroy()
     #     super().destroy()
 
-
+import pandas as pd
 class App(tk.Frame):
-    def __init__(self, root, video, triplet_segment_gen, *args, **kwargs):
+    def __init__(self, root, video, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
+        self.root = root
+        # self.df = pd.DataFrame(columns=['video_file', 'anchor', 'sample1', 'sample2', 'selected'], index=pd.Index(np.arange(100)))
+        self.saved_triplets = []
         self.video = video
-        self.triplets_gen = triplet_segment_gen
+        # self.triplets_gen = triplet_segment_gen
+        self.i = 0
         self.display = tk.Frame()
         self.display.pack()
         self.next_button = tk.Button(self, command=self.reload_display, text="NEXT")
         self.next_button.pack(side=tk.BOTTOM)
-        self.bind('<Return>', self.reload_display)
-        self.bind('<space>', self.reload_display)
-        self.bind('q', self.quit())
+        self.bind('<Return>', self.next)
+        self.bind('<space>', self.next)
+        self.bind('q', lambda event: self.quit())
         self.focus_set()
         self.load_clips()
         self.reload_display()
+        self.bind('<Left>', lambda event: self.display.choice_var.set(1))
+        self.bind('<Right>', lambda event: self.display.choice_var.set(2))
+        self.bind('<Down>', lambda event: self.display.choice_var.set(0))
         self.pack()
 
-    def reload_display(self, event=None):
+    def sample_random_triplets(self, n_frames=240, fps=120):
+        print(len(self.video))
+        random_idxs = np.random.randint(len(self.video), size=3)
+        self.segments = [slice(idx, idx + n_frames, self.video.fps//fps) for idx in random_idxs]
+        self.clips = [self.video[seg] for seg in self.segments]
+
+    def next(self, event=None):
+        self.save_triplet()
+        self.reload_display()
+
+    def reload_display(self):
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=30)
         self.display.pack(side=tk.TOP)
         self.load_clips()
 
+    def save_triplet(self):
+        self.saved_triplets.append({'video_file': self.video.video_file,
+                                    'anchor': (self.segments[0].start, self.segments[0].stop),
+                                    'sample1': (self.segments[1].start, self.segments[1].stop),
+                                    'sample2': (self.segments[2].start, self.segments[2].stop),
+                                    'selected': self.display.choice_var.get()})
 
     def load_clips(self):
         print("start load clips")
         # anchor, pos, neg = next(self.triplets_gen)
         # self.clips = [get_seg_clip(self.video, seg, n_frames=60, fps=120) for seg in [anchor, pos, neg]]
-        self.clips = next(self.triplets_gen)
+        self.sample_random_triplets()
         print("finish load clips")
+
+    def quit(self):
+        print("quitting")
+        df = pd.DataFrame.from_records(self.saved_triplets)
+        print(df)
+        df.to_json(path_or_buf='triplets/data/selected_triplets.json', orient='records')
+        df.to_csv(path_or_buf='triplets/data/selected_triplets.csv', mode='a')
+        self.root.quit()
 
 
 data_root = Path("/home/orel/Storage/Data/K6/")
@@ -175,9 +207,10 @@ video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
 
 
 def __main__():
+    print(os.getcwd())
     root = tk.Tk()
     video = LandmarksVideo(data_root/'2020-03-23'/'Down', include_landmarks=False)
-    app = App(root, video, get_random_clips(video, n_frames=120, fps=120))
+    app = App(root, video)
     root.mainloop()
 
 

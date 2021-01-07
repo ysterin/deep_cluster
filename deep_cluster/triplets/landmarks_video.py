@@ -129,9 +129,14 @@ class LandmarksVideo(object):
         self.vid_dir = vid_dir
         self.include_landmarks = include_landmarks
         vid_file, landmarks_file = get_files(vid_dir)
+        self.vid_file = vid_file
         self.video = Video(vid_file)
+        self.length = len(self.video)
         self.landmarks = LandmarkDataset(landmarks_file, normalize=False)
         self.normalized_landmarks = LandmarkDataset(landmarks_file, normalize=True)
+
+    def __len__(self):
+        return self.length
 
     def __getitem__(self, idx):
         if isinstance(idx, slice):
@@ -163,6 +168,15 @@ class LandmarksVideo(object):
                     x, y = landmarks[i, j].astype(np.int) - min_xy
                     cv.circle(cut_frames[i], (x, y), 5, self.color_pallete[j], -1)
         return cut_frames
+
+    def __getattr__(self, att):
+        return self.video.__getattribute__(att)
+
+    def set(self, *args):
+        return self.video.set(*args)
+
+    def get(self, *args):
+        return self.video.get(*args)
 
 
 
