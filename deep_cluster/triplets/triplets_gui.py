@@ -47,6 +47,12 @@ def get_seg_clip(vid, seg, n_frames, fps=120):
     return np.stack(frames)
 
 
+def get_random_clips(vid, n_frames=240, max_n_clips=100, fps=60):
+    for i in range(max_n_clips):
+        random_idxs = np.random.randint(0, 3*10**5, size=(3,))
+        print(vid[random_idxs[0]].shape)
+        yield [vid[idx:idx + n_frames:240//fps] for idx in random_idxs]
+
 '''
 A widget for displaying animation.
 root: parent of widget
@@ -65,6 +71,8 @@ class Animation(tk.Canvas):
             height = kwargs['height']
         else:
             height, width, *_ = frames[0].shape
+            if 'rescale' in kwargs:
+                height, width = int(height * kwargs['rescale']), int(width * kwargs['rescale'])
         tk.Canvas.__init__(self, root, width=width, height=height, *args)
         self.n_frames = n_frames if n_frames else len(frames)
         if self.n_frames < len(frames):
@@ -104,19 +112,19 @@ class ClipsDisplay(tk.Frame):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.window = tk.Frame(self)
         n_frames = int(np.mean([len(clip) for clip in clips]))
-        self.anchor_anim = Animation(self, clips[0], fps=fps, n_frames=n_frames, width=100, height=240)
+        self.anchor_anim = Animation(self, clips[0], fps=fps, n_frames=n_frames, rescale=2.)#, width=100, height=240)
         self.anchor_anim.pack(side=tk.LEFT)
         pos_frame = tk.Frame(self.window)
         neg_frame = tk.Frame(self.window)
         choice_var = tk.BooleanVar(self)
         radio_button_1 = tk.Radiobutton(pos_frame, var=choice_var, value=True)
         radio_button_2 = tk.Radiobutton(neg_frame, var=choice_var, value=False)
-        self.pos_anim = Animation(pos_frame, clips[1], fps=fps, n_frames=n_frames, width=100, height=200)
-        self.neg_anim = Animation(neg_frame, clips[2], fps=fps, n_frames=n_frames, width=100, height=200)
+        self.pos_anim = Animation(pos_frame, clips[1], fps=fps, n_frames=n_frames, rescale=2.)#, width=100, height=200)
+        self.neg_anim = Animation(neg_frame, clips[2], fps=fps, n_frames=n_frames, rescale=2.)#, width=100, height=200)
         self.pos_anim.pack()
         self.neg_anim.pack()
-        radio_button_1.pack()
-        radio_button_2.pack()
+        radio_button_1.pack(side=tk.BOTTOM)
+        radio_button_2.pack(side=tk.BOTTOM)
         pos_frame.pack(side=tk.LEFT)
         neg_frame.pack(side=tk.LEFT)
         self.window.pack()
@@ -136,13 +144,17 @@ class App(tk.Frame):
         self.triplets_gen = triplet_segment_gen
         self.display = tk.Frame()
         self.display.pack()
-        self.next_button = tk.Button(self, command=self.reload_display)
+        self.next_button = tk.Button(self, command=self.reload_display, text="NEXT")
         self.next_button.pack(side=tk.BOTTOM)
+        self.bind('<Return>', self.reload_display)
+        self.bind('<space>', self.reload_display)
+        self.bind('q', self.quit())
+        self.focus_set()
         self.load_clips()
         self.reload_display()
         self.pack()
 
-    def reload_display(self):
+    def reload_display(self, event=None):
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=30)
         self.display.pack(side=tk.TOP)
@@ -151,8 +163,9 @@ class App(tk.Frame):
 
     def load_clips(self):
         print("start load clips")
-        anchor, pos, neg = next(self.triplets_gen)
-        self.clips = [get_seg_clip(self.video, seg, n_frames=60, fps=120) for seg in [anchor, pos, neg]]
+        # anchor, pos, neg = next(self.triplets_gen)
+        # self.clips = [get_seg_clip(self.video, seg, n_frames=60, fps=120) for seg in [anchor, pos, neg]]
+        self.clips = next(self.triplets_gen)
         print("finish load clips")
 
 
@@ -163,15 +176,8 @@ video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
 
 def __main__():
     root = tk.Tk()
-    video = LandmarksVideo(data_root/'2020-03-23'/'Down')
-    clips = [video[1000*i: 1000*i + 3000 + 200*i: 10] for i in range(3, 7)]
-    app = Animation(root, clips[3], fps=30)
-#     segments = load_segments(model_dir='../models/vade_11_24', landmark_file=landmark_file)
-#     triplet_gen = triplets_segments_gen(segments, 30)
-#     app = App(root, video, triplet_gen)
-    # anims = [Animation(root, clips[i], n_frames=120, fps=60, width=250, height=250) for i in range(4)]
-    # anim1.pack()
-    # anim2.pack()
+    video = LandmarksVideo(data_root/'2020-03-23'/'Down', include_landmarks=False)
+    app = App(root, video, get_random_clips(video, n_frames=120, fps=120))
     root.mainloop()
 
 

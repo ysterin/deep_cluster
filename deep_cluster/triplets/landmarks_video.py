@@ -125,8 +125,9 @@ class LandmarksVideo(object):
                      (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
                      (160, 160, 160)]
 
-    def __init__(self, vid_dir=data_root / '2020-03-23' / 'Down'):
+    def __init__(self, vid_dir=data_root / '2020-03-23' / 'Down', include_landmarks=True):
         self.vid_dir = vid_dir
+        self.include_landmarks = include_landmarks
         vid_file, landmarks_file = get_files(vid_dir)
         self.video = Video(vid_file)
         self.landmarks = LandmarkDataset(landmarks_file, normalize=False)
@@ -141,9 +142,10 @@ class LandmarksVideo(object):
         min_xy, max_xy = np.clip(min_xy, 0, self.video.shape).astype(np.int), np.clip(max_xy, 0,
                                                                                       self.video.shape).astype(np.int)
         cut_frame = frame[min_xy[1]:max_xy[1], min_xy[0]:max_xy[0]].copy()
-        for j, part in enumerate(self.landmarks.body_parts):
-            x, y = landmarks[j].astype(np.int) - min_xy
-            cv.circle(cut_frame, (x, y), 5, self.color_pallete[j], -1)
+        if self.include_landmarks:
+            for j, part in enumerate(self.landmarks.body_parts):
+                x, y = landmarks[j].astype(np.int) - min_xy
+                cv.circle(cut_frame, (x, y), 5, self.color_pallete[j], -1)
         return cut_frame
 
     def get_slice(self, s):
@@ -155,10 +157,11 @@ class LandmarksVideo(object):
         min_xy, max_xy = np.clip(min_xy, 0, self.video.shape).astype(np.int), np.clip(max_xy, 0,
                                                                                       self.video.shape).astype(np.int)
         cut_frames = frames[:, min_xy[1]:max_xy[1], min_xy[0]:max_xy[0]].copy()
-        for i in range(len(landmarks)):
-            for j, part in enumerate(self.landmarks.body_parts):
-                x, y = landmarks[i, j].astype(np.int) - min_xy
-                cv.circle(cut_frames[i], (x, y), 5, self.color_pallete[j], -1)
+        if self.include_landmarks:
+            for i in range(len(landmarks)):
+                for j, part in enumerate(self.landmarks.body_parts):
+                    x, y = landmarks[i, j].astype(np.int) - min_xy
+                    cv.circle(cut_frames[i], (x, y), 5, self.color_pallete[j], -1)
         return cut_frames
 
 
