@@ -196,7 +196,7 @@ class App(tk.Frame):
         print("quitting")
         df = pd.DataFrame.from_records(self.saved_triplets)
         print(df)
-        df.to_json(path_or_buf='triplets/data/selected_triplets.json', orient='records')
+        # df.to_json(path_or_buf='triplets/data/selected_triplets.json', orient='records')
         df.to_csv(path_or_buf='triplets/data/selected_triplets.csv', mode='a')
         self.root.quit()
 
