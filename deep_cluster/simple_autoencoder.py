@@ -30,7 +30,7 @@ class Autoencoder(nn.Module):
         if loss_func:
             self.loss_func = loss_func
         else:
-            loss_func = F.mse_loss
+            self.loss_func = F.mse_loss
         n_layers = len(n_neurons) - 1
         layers = list()
         for i in range(n_layers):
