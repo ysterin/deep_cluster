@@ -30,7 +30,7 @@ class Autoencoder(nn.Module):
         if loss_func:
             self.loss_func = loss_func
         else:
-            loss_func = F.mse_loss
+            self.loss_func = F.mse_loss
         n_layers = len(n_neurons) - 1
         layers = list()
         for i in range(n_layers):
@@ -82,10 +82,10 @@ class Autoencoder(nn.Module):
     
 #pytorch-lightning module for training the autoencoder
 class PLAutoencoder(pl.LightningModule):
-    def __init__(self, landmark_files, n_neurons=[203, 128, 128, 7], lr=1e-3, seqlen=30, patience=20, batch_norm=False, wd=0.05):
+    def __init__(self, landmark_files, n_neurons=[203, 128, 128, 7], lr=1e-3, seqlen=30, patience=20, batch_norm=False, wd=0.05, diff=False):
         super(PLAutoencoder, self).__init__()
         self.landmark_files = landmark_files
-        self.seqlen = seqlen
+        self.seqlen, self.diff = seqlen, diff
         self.hparams = {'lr': lr, 'patience': patience, 'wd': wd}
         self.model = Autoencoder(n_neurons, batch_norm)
 
@@ -100,17 +100,18 @@ class PLAutoencoder(pl.LightningModule):
                 landmark_datasets.append(ds)
             except OSError:
                 pass
+        self.body_parts = landmark_datasets[0].body_parts
         coords = [sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for ds in landmark_datasets]
         N, n_coords, _ = coords[0].shape
         self.coords = coords
         train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in coords]
         valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in coords]
-        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for data in train_data]
-        valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=10, diff=False) for data in valid_data]
+        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=self.diff) for data in train_data]
+        valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=10, diff=self.diff) for data in valid_data]
         self.train_ds = ConcatDataset(train_dsets)
         self.valid_ds = ConcatDataset(valid_dsets)
         all_data = [crds.reshape(-1, n_coords*2) for crds in coords]
-        all_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for data in all_data]
+        all_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=self.diff) for data in all_data]
         self.all_ds = ConcatDataset(all_dsets)
         
 

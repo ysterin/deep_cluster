@@ -62,7 +62,7 @@ n_frames: number of frames to show in the animation - if less then length of fra
 '''
 class Animation(tk.Canvas):
     def __init__(self, root, frames, n_frames=None, fps=30, *args, **kwargs):
-        self.n_frames = len(frames)
+        # self.n_frames = len(frames)
         self.interval = 1 / fps
         self.root = root
         self.stop = Event()
@@ -151,8 +151,9 @@ class App(tk.Frame):
         self.display.pack()
         self.next_button = tk.Button(self, command=self.reload_display, text="NEXT")
         self.next_button.pack(side=tk.BOTTOM)
-        self.bind('<Return>', self.next)
+        self.bind('<Return>', lambda event: self.save())
         self.bind('<space>', self.next)
+        self.bind('w', self.next)
         self.bind('q', lambda event: self.quit())
         self.focus_set()
         self.load_clips()
@@ -160,9 +161,13 @@ class App(tk.Frame):
         self.bind('<Left>', lambda event: self.display.choice_var.set(1))
         self.bind('<Right>', lambda event: self.display.choice_var.set(2))
         self.bind('<Down>', lambda event: self.display.choice_var.set(0))
+        self.bind('a', lambda event: self.display.choice_var.set(1))
+        self.bind('d', lambda event: self.display.choice_var.set(2))
+        self.bind('s', lambda event: self.display.choice_var.set(0))
+        self.bind('e', lambda event: self.save())
         self.pack()
 
-    def sample_random_triplets(self, n_frames=240, fps=120):
+    def sample_random_triplets(self, n_frames=120, fps=120):
         print(len(self.video))
         random_idxs = np.random.randint(len(self.video), size=3)
         self.segments = [slice(idx, idx + n_frames, self.video.fps//fps) for idx in random_idxs]
@@ -192,24 +197,31 @@ class App(tk.Frame):
         self.sample_random_triplets()
         print("finish load clips")
 
+    def save(self):
+        df = pd.DataFrame.from_records(self.saved_triplets)
+        # df.to_json(path_or_buf='triplets/data/selected_triplets.json', orient='records')
+        mode = 'a' if os.path.exists('triplets/data/selected_triplets.csv') else 'r'
+        df.to_csv(path_or_buf='triplets/data/selected_triplets.csv', mode=mode)
+        self.saved_triplets = []
+
     def quit(self):
         print("quitting")
-        df = pd.DataFrame.from_records(self.saved_triplets)
-        print(df)
-        # df.to_json(path_or_buf='triplets/data/selected_triplets.json', orient='records')
-        df.to_csv(path_or_buf='triplets/data/selected_triplets.csv', mode='a')
+        self.save()
         self.root.quit()
 
 
-data_root = Path("/home/orel/Storage/Data/K6/")
-landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
-video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
+
+
+# data_root = Path("/home/orel/Storage/Data/K6/")
+data_root = Path("/mnt/storage2/shuki/data/THEMIS")
+# landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
+# video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
 
 
 def __main__():
     print(os.getcwd())
     root = tk.Tk()
-    video = LandmarksVideo(data_root/'2020-03-23'/'Down', include_landmarks=False)
+    video = LandmarksVideo(data_root/'0015', include_landmarks=False)
     app = App(root, video)
     root.mainloop()
 
