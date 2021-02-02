@@ -25,7 +25,7 @@ pd.set_option('mode.chained_assignment', None)
 # A simple autoencoder
 class Autoencoder(nn.Module):
     # n_neurons: the sizes of each layer in the encoder - the decoder has the same number of neurons in each layer, in reverse.
-    def __init__(self, n_neurons, batch_norm=False, loss_func=None):
+    def __init__(self, n_neurons, batch_norm=False, loss_func=None, dropout=0.):
         super(Autoencoder, self).__init__()
         if loss_func:
             self.loss_func = loss_func
@@ -39,6 +39,8 @@ class Autoencoder(nn.Module):
                 layers.append(nn.ELU())
                 if batch_norm:
                     layers.append(nn.BatchNorm1D(n_neurons[i+1]))
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
         self.encoder = nn.Sequential(*layers)
         layers = list()
         n_neurons = n_neurons[::-1]
@@ -48,6 +50,8 @@ class Autoencoder(nn.Module):
                 layers.append(nn.ELU())
                 if batch_norm:
                     layers.append(nn.BatchNorm1D(n_neurons[i+1]))
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
         self.decoder = nn.Sequential(*layers)
         
     def forward(self, x):

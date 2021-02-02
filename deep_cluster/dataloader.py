@@ -196,6 +196,13 @@ class SequenceDataset(data.Dataset):
             item = np.reshape(item, (-1, ))
         return item
 
+    def get_slice(self, start, end, step=1):
+        item = self.data[start : end : step]
+        if self.diff:
+            item = np.diff(item, (-1, ))
+        item = (item - self.mean) / (self.std + self.eps)
+        return item
+
 
 
 def main():
