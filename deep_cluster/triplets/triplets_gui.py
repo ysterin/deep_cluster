@@ -149,7 +149,7 @@ class App(tk.Frame):
         self.i = 0
         self.display = tk.Frame()
         self.display.pack()
-        self.next_button = tk.Button(self, command=self.reload_display, text="NEXT")
+        self.next_button = tk.Button(self, command=self.next, text="NEXT")
         self.next_button.pack(side=tk.BOTTOM)
         self.bind('<Return>', lambda event: self.save())
         self.bind('<space>', self.next)
@@ -210,7 +210,85 @@ class App(tk.Frame):
         self.root.quit()
 
 
+def decode_seg_string(seg_string):
+    start, end = seg_string[1:-1].split(',')
+    start, end = int(start), int(end)
+    start_idx, end_idx = start , end 
+    return (start_idx, end_idx)
 
+class VerificationApp(tk.Frame):
+    def __init__(self, root, video, df, *args, **kwargs):
+        tk.Frame.__init__(self, root, *args, **kwargs)
+        self.root = root
+        self.df = df
+        # self.df = pd.DataFrame(columns=['video_file', 'anchor', 'sample1', 'sample2', 'selected'], index=pd.Index(np.arange(100)))
+        self.saved_triplets = []
+        self.video = video
+        self.i = -1
+        self.display = tk.Frame()
+        self.display.pack()
+        self.next_button = tk.Button(self, command=self.next, text="NEXT")
+        self.next_button.pack(side=tk.BOTTOM)
+        self.bind('<Return>', lambda event: self.save())
+        self.bind('<space>', self.next)
+        self.bind('w', self.next)
+        self.bind('q', lambda event: self.quit())
+        self.focus_set()
+        self.load_clips()
+        self.reload_display()
+        self.bind('<Left>', lambda event: self.display.choice_var.set(1))
+        self.bind('<Right>', lambda event: self.display.choice_var.set(2))
+        self.bind('<Down>', lambda event: self.display.choice_var.set(0))
+        self.bind('a', lambda event: self.display.choice_var.set(1))
+        self.bind('d', lambda event: self.display.choice_var.set(2))
+        self.bind('s', lambda event: self.display.choice_var.set(0))
+        self.bind('e', lambda event: self.save())
+        self.pack()
+
+    def next(self, event=None):
+        self.save_triplet()
+        self.reload_display()
+
+    def new_triplet(self, fps=120):
+        self.i += 1
+        row = self.df.iloc[self.i]
+        sample_names = ['anchor', 'sample1', 'sample2']
+        segments = [decode_seg_string(row[sample]) for sample in sample_names]
+        self.segments = [slice(seg[0], seg[1], self.video.fps//fps) for seg in segments]
+        self.clips = [self.video[seg] for seg in self.segments]
+
+    def reload_display(self):
+        self.display.destroy()
+        self.display = ClipsDisplay(self, self.clips, fps=30)
+        self.display.pack(side=tk.TOP)
+        self.load_clips()
+
+    def save_triplet(self):
+        self.saved_triplets.append({'video_file': self.video.video_file,
+                                    'anchor': (self.segments[0].start, self.segments[0].stop),
+                                    'sample1': (self.segments[1].start, self.segments[1].stop),
+                                    'sample2': (self.segments[2].start, self.segments[2].stop),
+                                    'selected': self.df.iloc[self.i]['selected'],
+                                    'selected_verification': self.display.choice_var.get()})
+
+    def load_clips(self):
+        print("start load clips")
+        # anchor, pos, neg = next(self.triplets_gen)
+        # self.clips = [get_seg_clip(self.video, seg, n_frames=60, fps=120) for seg in [anchor, pos, neg]]
+        self.new_triplet()
+        print("finish load clips")
+
+    def save(self):
+        df = pd.DataFrame.from_records(self.saved_triplets)
+        path = 'triplets/data/selected_triplets_verification.csv'
+        mode = 'a' if os.path.exists(path) else 'r'
+        df.to_csv(path_or_buf=path, mode=mode)
+        self.saved_triplets = []
+
+    def quit(self):
+        print("quitting")
+        self.save()
+        self.root.quit()
 
 # data_root = Path("/home/orel/Storage/Data/K6/")
 data_root = Path("/mnt/storage2/shuki/data/THEMIS")
@@ -222,7 +300,9 @@ def __main__():
     print(os.getcwd())
     root = tk.Tk()
     video = LandmarksVideo(data_root/'0015', include_landmarks=False)
-    app = App(root, video)
+    df = pd.read_csv('triplets/data/selected_triplets.csv')
+    # app = App(root, video)
+    app = VerificationApp(root, video, df)
     root.mainloop()
 
 
