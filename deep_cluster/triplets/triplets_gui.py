@@ -217,14 +217,14 @@ def decode_seg_string(seg_string):
     return (start_idx, end_idx)
 
 class VerificationApp(tk.Frame):
-    def __init__(self, root, video, df, *args, **kwargs):
+    def __init__(self, root, video, df, start_idx=-1, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.root = root
         self.df = df
         # self.df = pd.DataFrame(columns=['video_file', 'anchor', 'sample1', 'sample2', 'selected'], index=pd.Index(np.arange(100)))
         self.saved_triplets = []
         self.video = video
-        self.i = -1
+        self.i = start_idx
         self.display = tk.Frame()
         self.display.pack()
         self.next_button = tk.Button(self, command=self.next, text="NEXT")
@@ -281,7 +281,7 @@ class VerificationApp(tk.Frame):
     def save(self):
         df = pd.DataFrame.from_records(self.saved_triplets)
         path = 'triplets/data/selected_triplets_verification.csv'
-        mode = 'a' if os.path.exists(path) else 'r'
+        mode = 'a' if os.path.exists(path) else 'w'
         df.to_csv(path_or_buf=path, mode=mode)
         self.saved_triplets = []
 
@@ -290,8 +290,8 @@ class VerificationApp(tk.Frame):
         self.save()
         self.root.quit()
 
-# data_root = Path("/home/orel/Storage/Data/K6/")
-data_root = Path("/mnt/storage2/shuki/data/THEMIS")
+data_root = Path("/home/orel/Storage/Data/K6/2020-03-31/Down")
+# data_root = Path("/mnt/storage2/shuki/data/THEMIS")
 # landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
 # video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
 
@@ -299,10 +299,10 @@ data_root = Path("/mnt/storage2/shuki/data/THEMIS")
 def __main__():
     print(os.getcwd())
     root = tk.Tk()
-    video = LandmarksVideo(data_root/'0015', include_landmarks=False)
+    video = LandmarksVideo(data_root, include_landmarks=False)
     df = pd.read_csv('triplets/data/selected_triplets.csv')
     # app = App(root, video)
-    app = VerificationApp(root, video, df)
+    app = VerificationApp(root, video, df.iloc[100:])
     root.mainloop()
 
 

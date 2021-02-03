@@ -6,7 +6,6 @@
 **/*.png
 lightning_logs
 clips/
-deep_cluster/
 deep_cluster-deep_cluster/
 wandb/
 models/
