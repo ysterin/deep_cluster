@@ -253,7 +253,12 @@ class VerificationApp(tk.Frame):
         self.i += 1
         row = self.df.iloc[self.i]
         sample_names = ['anchor', 'sample1', 'sample2']
-        segments = [decode_seg_string(row[sample]) for sample in sample_names]
+        try:
+            segments = [decode_seg_string(row[sample]) for sample in sample_names]
+        except ValueError as e:
+            print(e)
+            import pdb; pdb.set_trace()
+            return
         self.segments = [slice(seg[0], seg[1], self.video.fps//fps) for seg in segments]
         self.clips = [self.video[seg] for seg in self.segments]
 
