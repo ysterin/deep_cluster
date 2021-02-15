@@ -1,6 +1,7 @@
 **/*.mp4
 **/logs
-
+**/*.ckpt
+**/temp
 **/*.pyc
 **/*.jpg
 **/*.png

@@ -169,7 +169,7 @@ class App(tk.Frame):
 
     def sample_random_triplets(self, n_frames=120, fps=120):
         print(len(self.video))
-        random_idxs = np.random.randint(len(self.video), size=3)
+        random_idxs = np.random.randint(len(self.video) - 240, size=3)
         self.segments = [slice(idx, idx + n_frames, self.video.fps//fps) for idx in random_idxs]
         self.clips = [self.video[seg] for seg in self.segments]
 
@@ -285,7 +285,7 @@ class VerificationApp(tk.Frame):
 
     def save(self):
         df = pd.DataFrame.from_records(self.saved_triplets)
-        path = 'triplets/data/selected_triplets_verification.csv'
+        path = 'triplets/data/selected_triplets_verificatio1.csv'
         mode = 'a' if os.path.exists(path) else 'w'
         df.to_csv(path_or_buf=path, mode=mode)
         self.saved_triplets = []
@@ -295,8 +295,8 @@ class VerificationApp(tk.Frame):
         self.save()
         self.root.quit()
 
-data_root = Path("/home/orel/Storage/Data/K6/2020-03-31/Down")
-# data_root = Path("/mnt/storage2/shuki/data/THEMIS")
+# data_root = Path("/home/orel/Storage/Data/K6/2020-03-31/Down")
+data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
 # landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
 # video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
 
@@ -307,7 +307,7 @@ def __main__():
     video = LandmarksVideo(data_root, include_landmarks=False)
     df = pd.read_csv('triplets/data/selected_triplets.csv')
     # app = App(root, video)
-    app = VerificationApp(root, video, df.iloc[100:])
+    app = VerificationApp(root, video, df.iloc[20:])
     root.mainloop()
 
 

@@ -3,7 +3,7 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 import numpy as np
 from scipy import signal as sig
 import torch
-from dataloader import LandmarkDataset, SequenceDataset
+from deep_cluster.dataloader import LandmarkDataset, SequenceDataset
 from torch import autograd
 from torch.utils.data import DataLoader, Dataset, ConcatDataset
 from torch import nn
@@ -49,7 +49,7 @@ def get_encoder_decoder(n_neurons, batch_norm=True):
 
 
 class SimpleAutoencoder(pl.LightningModule):
-    def __init__(self, n_neurons=[784, 512, 256, 10], lr=1e-3, batch_norm=True):
+    def __init__(self, n_neurons=[1440, 512, 256, 10], lr=1e-3, batch_norm=True):
         super(SimpleAutoencoder, self).__init__()
         self.hparams = {'lr': lr}
         # self.model = get_autoencoder(n_neurons, batch_norm)
@@ -162,9 +162,21 @@ def clustering_accuracy(gt, labels):
 
 
 class VaDE(pl.LightningModule):
-    def __init__(self, landmark_files, seqlen, n_neurons=[784, 512, 256, 10], batch_norm=True, k=10, lr=1e-3, device='cuda', pretrain=True):
+    def __init__(self, 
+                 landmark_files, 
+                 seqlen, n_neurons=[1440, 512, 256, 10], 
+                 batch_norm=False, 
+                 k=10, 
+                 lr=1e-3, 
+                 device='cuda', 
+                 pretrain=True, 
+                 init_gmm=None, 
+                 pretrained_model=None,
+                 log_func=None):
         super(VaDE, self).__init__()
         self.k = k
+        if log_func:
+            self.log = log_func
         self.seqlen = seqlen
         self.landmark_files = landmark_files
         self.n_neurons, self.batch_norm = n_neurons, batch_norm
@@ -193,8 +205,20 @@ class VaDE(pl.LightningModule):
         self.sigma = nn.Parameter(torch.ones(1)*np.sqrt(0.02), requires_grad=False)
         # self.sigma = 1
         self.out_dist = LatentDistribution(n_neurons[-2], n_neurons[-1], sigma=self.sigma, distribution='cauchy')
-        if pretrain:
+        if init_gmm is not None and pretrained_model is not None:
+            self.load_init_params(init_gmm, pretrained_model)
+        elif pretrain:
             self.init_params()
+
+    def load_init_params(self, init_gmm, pretrained_model):
+        self.mixture_logits.data = torch.Tensor(np.log(init_gmm.weights_))
+        self.mu_c.data = torch.Tensor(init_gmm.means_.T)
+        self.logvar_c.data = torch.Tensor(init_gmm.covariances_.T).log()
+#         self.sigma_c.data = torch.Tensor(init_gmm.covariances_.T).sqrt()
+        self.encoder.load_state_dict(pretrained_model.encoder[:-1].state_dict())
+        self.decoder.load_state_dict(pretrained_model.decoder[:-1].state_dict())
+        self.latent_dist.mu_fc.load_state_dict(pretrained_model.encoder[-1].state_dict())
+        self.out_dist.mu_fc.load_state_dict(pretrained_model.decoder[-1].state_dict())
 
 
     def init_params(self):
@@ -208,14 +232,15 @@ class VaDE(pl.LightningModule):
         X_encoded = pretrain_model.encode_ds(dataset)
         init_gmm = GaussianMixture(self.k, covariance_type='diag')
         init_gmm.fit(X_encoded)
-        self.mixture_logits.data = torch.Tensor(np.log(init_gmm.weights_))
-        self.mu_c.data = torch.Tensor(init_gmm.means_.T)
-        self.logvar_c.data = torch.Tensor(init_gmm.covariances_.T).log()
-#         self.sigma_c.data = torch.Tensor(init_gmm.covariances_.T).sqrt()
-        self.encoder.load_state_dict(pretrain_model.encoder[:-1].state_dict())
-        self.decoder.load_state_dict(pretrain_model.decoder[:-1].state_dict())
-        self.latent_dist.mu_fc.load_state_dict(pretrain_model.encoder[-1].state_dict())
-        self.out_dist.mu_fc.load_state_dict(pretrain_model.decoder[-1].state_dict())
+        self.load_init_params(init_gmm, pretrain_model)
+#         self.mixture_logits.data = torch.Tensor(np.log(init_gmm.weights_))
+#         self.mu_c.data = torch.Tensor(init_gmm.means_.T)
+#         self.logvar_c.data = torch.Tensor(init_gmm.covariances_.T).log()
+# #         self.sigma_c.data = torch.Tensor(init_gmm.covariances_.T).sqrt()
+#         self.encoder.load_state_dict(pretrain_model.encoder[:-1].state_dict())
+#         self.decoder.load_state_dict(pretrain_model.decoder[:-1].state_dict())
+#         self.latent_dist.mu_fc.load_state_dict(pretrain_model.encoder[-1].state_dict())
+#         self.out_dist.mu_fc.load_state_dict(pretrain_model.decoder[-1].state_dict())
 
     def forward(self, bx):
         x = self.encoder(bx)
@@ -265,29 +290,38 @@ class VaDE(pl.LightningModule):
         loss = x_recon_loss + kl_loss
         if not torch.all(loss.isfinite()):
             import pdb; pdb.set_trace()
-        return loss.mean(), x_recon_loss.mean(), kl_loss.mean(), mse_loss.mean()
+
+        result = {'loss': loss.mean(), 
+                  'rec_loss': x_recon_loss.mean(),
+                  'kl_loss': kl_loss.mean(),
+                  'kl_loss1': -(ent_loss1 + crosent_loss1).mean(), 
+                  'kl_loss2': -(ent_loss2 + crosent_loss2).mean(),
+                  'mse_loss': mse_loss.mean()}
+        return result
+        # return loss.mean(), x_recon_loss.mean(), kl_loss.mean(), mse_loss.mean()
 
     def prepare_data(self):
-        landmark_datasets = []
+        landmark_datasets = {}
         for file in self.landmark_files:
             try:
                 ds = LandmarkDataset(file)
-                landmark_datasets.append(ds)
+                landmark_datasets[file] = ds
             except OSError:
                 pass
         self.landmark_datasets = landmark_datasets
-        coords = [sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for ds in landmark_datasets]
-        self.coords = coords
-        N, n_coords, _ = coords[0].shape
-        train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in coords]
-        valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in coords]
-        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for data in train_data]
+        self.landmark_files = list(self.landmark_datasets.keys())
+        coords_dict = {file: sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for file, ds in landmark_datasets.items()}
+        self.coords = [coords_dict[file] for file in self.landmark_files]
+        N, n_coords, _ = self.coords[0].shape
+        train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in self.coords]
+        valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in self.coords]
+        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=5, diff=False) for data in train_data]
         valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=20, diff=False) for data in valid_data]
         self.train_ds = ConcatDataset(train_dsets)
         self.valid_ds = ConcatDataset(valid_dsets)
-        all_data = [crds.reshape(-1, n_coords*2) for crds in coords]
-        all_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for data in all_data]
-        self.all_ds = ConcatDataset(all_dsets)
+        all_data = {file: crds.reshape(-1, n_coords*2) for file, crds in coords_dict.items()}
+        self.all_dsets_dict = {file: SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for file, data in all_data.items()}
+        self.all_ds = ConcatDataset([self.all_dsets_dict[file] for file in self.landmark_files])
         
     
     def train_dataloader(self):
@@ -301,25 +335,33 @@ class VaDE(pl.LightningModule):
         opt = torch.optim.AdamW(self.parameters(), self.hparams['lr'], weight_decay=0.01)
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: (epoch+1)/10 if epoch < 10 else 0.9**(epoch//10))
         return [opt], [sched]
+
+    def encode(self, batch):
+        bx = batch
+        return self.out_dist(self.encoder(bx))
     
     def training_step(self, batch, batch_idx):
         bx = batch
-        loss, rec_loss, kl_loss, mse_loss = self.shared_step(bx)
-        result = {'loss': loss, 
-                  'rec_loss': rec_loss.detach(),
-                  'kl_loss': kl_loss.detach(),
-                  'mse_loss': mse_loss.detach()}
+        # loss, rec_loss, kl_loss, mse_loss = self.shared_step(bx)
+        # result = {'loss': loss, 
+        #           'rec_loss': rec_loss.detach(),
+        #           'kl_loss': kl_loss.detach(),
+        #           'mse_loss': mse_loss.detach()}
+        result = self.shared_step(bx)
         for k, v in result.items():
             self.log(k, v, on_step=True)
         return result
 
     def validation_step(self, batch, batch_idx):
         bx = batch
-        loss, rec_loss, kl_loss, mse_loss = self.shared_step(bx)
-        result = {'loss': loss.detach(), 
-                  'rec_loss': rec_loss.detach(),
-                  'kl_loss': kl_loss.detach(),
-                  'mse_loss': mse_loss.detach()}
+        # loss, rec_loss, kl_loss, mse_loss = self.shared_step(bx)
+        # result = {'loss': loss.detach(), 
+        #           'rec_loss': rec_loss.detach(),
+        #           'kl_loss': kl_loss.detach(),
+        #           'mse_loss': mse_loss.detach()}
+        result = self.shared_step(bx)
+        for k, v in result.items():
+            self.log(k, v, on_step=True)
         return result
 
     def cluster_data(self, dl=None):
@@ -355,7 +397,6 @@ class ClusteringEvaluationCallback(Callback):
 
     def on_epoch_start(self, trainer, pl_module):
         labels, _ = pl_module.cluster_data()
-#         nmi, acc1, acc2 = metrics.normalized_mutual_info_score(labels, gt), clustering_accuracy(labels, gt), clustering_accuracy(gt, labels)
         ent = entropy(labels)
         trainer.logger.log_metrics({'Empirical Entropy': ent})
 
