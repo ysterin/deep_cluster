@@ -181,7 +181,7 @@ class App(tk.Frame):
 
         # enc_segments = [slice(idx // 4 + 15, (idx + n_frames) // 4 - 15 + 1) for idx in random_idxs]
         self.clip_encodeings = [self.encoded[idx // 4] for idx in random_idxs]
-        print(self.clip_encodeings[0].shape)
+        # print(self.clip_encodeings[0].shape)
         self.clips = [self.video[seg] for seg in self.segments]
 
     def next(self, event=None):
@@ -252,6 +252,12 @@ class VerificationApp(tk.Frame):
         self.bind('<space>', self.next)
         self.bind('w', self.next)
         self.bind('q', lambda event: self.quit())
+        self.dist_label1 = tk.Label(self, text='distance from anchor to positive:')
+        self.dist_label1.pack(side=tk.BOTTOM)
+        self.dist_label2 = tk.Label(self, text='distance from anchor to negative:')
+        self.dist_label2.pack(side=tk.BOTTOM)
+        self.dist_label3 = tk.Label(self, text='distance from negative to positive:')
+        self.dist_label3.pack(side=tk.BOTTOM)
         self.focus_set()
         self.load_clips()
         self.reload_display()
@@ -279,12 +285,20 @@ class VerificationApp(tk.Frame):
             import pdb; pdb.set_trace()
             return
         self.segments = [slice(seg[0], seg[1], self.video.fps//fps) for seg in segments]
+        self.clip_encodeings = [self.encoded[seg[0] // 4] for seg in segments]
         self.clips = [self.video[seg] for seg in self.segments]
 
     def reload_display(self):
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=30)
         self.display.pack(side=tk.TOP)
+        dist1 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[1])
+        dist2 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[2])
+        dist3 = np.linalg.norm(self.clip_encodeings[2] - self.clip_encodeings[1])
+        print(dist1, dist2, dist3)
+        self.dist_label1['text'] = f"distance between anchor and sample1: {dist1:.2f}"
+        self.dist_label2['text'] = f"distance between anchor and sample2: {dist2:.2f}"
+        self.dist_label3['text'] = f"distance between sample2 and sample1: {dist3:.2f}"
         self.load_clips()
 
     def save_triplet(self):
@@ -330,8 +344,8 @@ def __main__():
     video = LandmarksVideo(data_root, include_landmarks=True)
     print(x_encoded.shape, len(video.landmarks))
     df = pd.read_csv('triplets/data/selected_triplets.csv')
-    app = App(root, video, x_encoded)
-    # app = VerificationApp(root, video, df.iloc[20:], )
+    # app = App(root, video, x_encoded)
+    app = VerificationApp(root, video, df.iloc[20:], encoded=x_encoded)
     root.mainloop()
 
 
