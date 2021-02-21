@@ -618,3 +618,5 @@
 203,/mnt/storage2/shuki/data/THEMIS/0015/0015.MP4,"(70571, 70691)","(334358, 334478)","(437730, 437850)",0
 204,/mnt/storage2/shuki/data/THEMIS/0015/0015.MP4,"(118782, 118902)","(458696, 458816)","(427217, 427337)",0
 ""
+,video_file,anchor,sample1,sample2,selected
+0,/mnt/storage2/shuki/data/THEMIS/0015/0015.MP4,"(102935, 103055)","(267112, 267232)","(461296, 461416)",0

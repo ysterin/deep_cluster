@@ -15,7 +15,7 @@ from torch.utils import data
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from dataloader import LandmarkDataset, SequenceDataset, LandmarkWaveletDataset
+from deep_cluster.dataloader import LandmarkDataset, SequenceDataset, LandmarkWaveletDataset
 from sklearn.cluster import KMeans
 from sklearn.metrics import normalized_mutual_info_score, confusion_matrix, accuracy_score
 

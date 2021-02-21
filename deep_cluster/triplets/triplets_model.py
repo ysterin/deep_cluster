@@ -245,7 +245,7 @@ class TripletVaDE(pl.LightningModule):
         return [opt], [sched]
 
     def triplet_loss(self, triplets_batch):
-        anchor_z, pos_z, neg_z = map(lambda s: self.model.encode(triplets_batch[s]).sample(), 
+        anchor_z, pos_z, neg_z = map(lambda s: self.model.encode(triplets_batch[s]).mean,
                                      ['anchor', 'positive', 'negative'])
         d1, d2 = torch.linalg.norm(anchor_z - pos_z, dim=1), torch.linalg.norm(anchor_z - neg_z, dim=1)
         self.log(self.state + '/anchor_pos_distance', d1.mean(), logger=True)

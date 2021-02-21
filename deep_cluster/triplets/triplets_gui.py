@@ -139,9 +139,10 @@ class ClipsDisplay(tk.Frame):
 
 import pandas as pd
 class App(tk.Frame):
-    def __init__(self, root, video, *args, **kwargs):
+    def __init__(self, root, video, encoded=None, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.root = root
+        self.encoded = encoded
         # self.df = pd.DataFrame(columns=['video_file', 'anchor', 'sample1', 'sample2', 'selected'], index=pd.Index(np.arange(100)))
         self.saved_triplets = []
         self.video = video
@@ -151,6 +152,12 @@ class App(tk.Frame):
         self.display.pack()
         self.next_button = tk.Button(self, command=self.next, text="NEXT")
         self.next_button.pack(side=tk.BOTTOM)
+        self.dist_label1 = tk.Label(self, text='distance from anchor to positive:')
+        self.dist_label1.pack(side=tk.BOTTOM)
+        self.dist_label2 = tk.Label(self, text='distance from anchor to negative:')
+        self.dist_label2.pack(side=tk.BOTTOM)
+        self.dist_label3 = tk.Label(self, text='distance from negative to positive:')
+        self.dist_label3.pack(side=tk.BOTTOM)
         self.bind('<Return>', lambda event: self.save())
         self.bind('<space>', self.next)
         self.bind('w', self.next)
@@ -171,6 +178,10 @@ class App(tk.Frame):
         print(len(self.video))
         random_idxs = np.random.randint(len(self.video) - 240, size=3)
         self.segments = [slice(idx, idx + n_frames, self.video.fps//fps) for idx in random_idxs]
+
+        # enc_segments = [slice(idx // 4 + 15, (idx + n_frames) // 4 - 15 + 1) for idx in random_idxs]
+        self.clip_encodeings = [self.encoded[idx // 4] for idx in random_idxs]
+        print(self.clip_encodeings[0].shape)
         self.clips = [self.video[seg] for seg in self.segments]
 
     def next(self, event=None):
@@ -181,6 +192,13 @@ class App(tk.Frame):
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=30)
         self.display.pack(side=tk.TOP)
+        dist1 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[1])
+        dist2 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[2])
+        dist3 = np.linalg.norm(self.clip_encodeings[2] - self.clip_encodeings[1])
+        print(dist1, dist2, dist3)
+        self.dist_label1['text'] = f"distance between anchor and sample1: {dist1:.2f}"
+        self.dist_label2['text'] = f"distance between anchor and sample2: {dist2:.2f}"
+        self.dist_label3['text'] = f"distance between sample2 and sample1: {dist3:.2f}"
         self.load_clips()
 
     def save_triplet(self):
@@ -217,10 +235,11 @@ def decode_seg_string(seg_string):
     return (start_idx, end_idx)
 
 class VerificationApp(tk.Frame):
-    def __init__(self, root, video, df, start_idx=-1, *args, **kwargs):
+    def __init__(self, root, video, df, encoded, start_idx=-1, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.root = root
         self.df = df
+        self.encoded = encoded
         # self.df = pd.DataFrame(columns=['video_file', 'anchor', 'sample1', 'sample2', 'selected'], index=pd.Index(np.arange(100)))
         self.saved_triplets = []
         self.video = video
@@ -304,10 +323,15 @@ data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
 def __main__():
     print(os.getcwd())
     root = tk.Tk()
-    video = LandmarksVideo(data_root, include_landmarks=False)
+    X_encoded_dict = np.load('models/11_03/x_encoded_dict.pkl', allow_pickle=True)
+    X_encoded_dict = {os.path.split(k)[-1][:4]: v for k, v in X_encoded_dict.items()}
+    x_encoded = X_encoded_dict[data_root.name]
+    # print(x_encoded.shape, )
+    video = LandmarksVideo(data_root, include_landmarks=True)
+    print(x_encoded.shape, len(video.landmarks))
     df = pd.read_csv('triplets/data/selected_triplets.csv')
-    # app = App(root, video)
-    app = VerificationApp(root, video, df.iloc[20:])
+    app = App(root, video, x_encoded)
+    # app = VerificationApp(root, video, df.iloc[20:], )
     root.mainloop()
 
 
