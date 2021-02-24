@@ -235,10 +235,11 @@ def decode_seg_string(seg_string):
     return (start_idx, end_idx)
 
 class VerificationApp(tk.Frame):
-    def __init__(self, root, video, df, encoded, start_idx=-1, *args, **kwargs):
+    def __init__(self, root, video, df, encoded, to_save=True, start_idx=-1, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.root = root
         self.df = df
+        self.to_save = to_save
         self.encoded = encoded
         # self.df = pd.DataFrame(columns=['video_file', 'anchor', 'sample1', 'sample2', 'selected'], index=pd.Index(np.arange(100)))
         self.saved_triplets = []
@@ -282,7 +283,7 @@ class VerificationApp(tk.Frame):
             segments = [decode_seg_string(row[sample]) for sample in sample_names]
         except ValueError as e:
             print(e)
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
             return
         self.segments = [slice(seg[0], seg[1], self.video.fps//fps) for seg in segments]
         self.clip_encodeings = [self.encoded[seg[0] // 4] for seg in segments]
@@ -292,6 +293,11 @@ class VerificationApp(tk.Frame):
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=30)
         self.display.pack(side=tk.TOP)
+        print(self.df.iloc[self.i].selected)
+        if self.df.iloc[self.i].selected_verification == '1':
+            self.display.pos_anim.configure(highlightthickness=5, highlightcolor='red', highlightbackground='red')
+        elif self.df.iloc[self.i].selected_verification == '2':
+            self.display.neg_anim.configure(highlightthickness=5, highlightcolor='red', highlightbackground='red')
         dist1 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[1])
         dist2 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[2])
         dist3 = np.linalg.norm(self.clip_encodeings[2] - self.clip_encodeings[1])
@@ -317,6 +323,8 @@ class VerificationApp(tk.Frame):
         print("finish load clips")
 
     def save(self):
+        if not self.to_save:
+            return
         df = pd.DataFrame.from_records(self.saved_triplets)
         path = 'triplets/data/selected_triplets_verificatio1.csv'
         mode = 'a' if os.path.exists(path) else 'w'
@@ -328,8 +336,8 @@ class VerificationApp(tk.Frame):
         self.save()
         self.root.quit()
 
-# data_root = Path("/home/orel/Storage/Data/K6/2020-03-31/Down")
-data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
+data_root = Path("/home/orel/Storage/Data/K6/2020-03-31/Down")
+# data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
 # landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
 # video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
 
@@ -339,13 +347,13 @@ def __main__():
     root = tk.Tk()
     X_encoded_dict = np.load('models/11_03/x_encoded_dict.pkl', allow_pickle=True)
     X_encoded_dict = {os.path.split(k)[-1][:4]: v for k, v in X_encoded_dict.items()}
-    x_encoded = X_encoded_dict[data_root.name]
+    x_encoded = X_encoded_dict['0015']
     # print(x_encoded.shape, )
     video = LandmarksVideo(data_root, include_landmarks=True)
     print(x_encoded.shape, len(video.landmarks))
-    df = pd.read_csv('triplets/data/selected_triplets.csv')
+    df = pd.read_csv('triplets/data/selected_triplets_verification.csv')
     # app = App(root, video, x_encoded)
-    app = VerificationApp(root, video, df.iloc[20:], encoded=x_encoded)
+    app = VerificationApp(root, video, df, encoded=x_encoded, to_save=False)
     root.mainloop()
 
 

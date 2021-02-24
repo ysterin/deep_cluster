@@ -29,7 +29,7 @@ def interpolate_mask(data, mask):
     return interpolate_indexes(data, idxs)
 
 
-def clear_low_likelihood(data, likelihood, thresh=0.5):
+def clear_low_likelihood(data, likelihood, thresh=0.8):
     return interpolate_mask(data, likelihood < thresh)
 
 
@@ -108,7 +108,28 @@ class LandmarkDataset(data.Dataset):
     def __len__(self):
         return self.coords.shape[0]
 
-    
+
+class FeaturesDataset(data.Dataset):
+    def __init__(self, landmarks_file, normalize=True):
+        super(FeaturesDataset, self).__init__()
+        self.file = landmarks_file
+        self.df = read_df(landmarks_file)
+        self.df = process_df(self.df)
+        self.features = extract_features(self.df)
+        # self.coords = extract_coordinates(self.df, normalize)
+        # self.body_parts = pd.unique([col[0] for col in self.df.columns])
+
+    def __getitem__(self, idx):
+        return self.features[idx]
+
+    def __len__(self):
+        return self.features.shape[0]
+
+    @property
+    def n_features(self):
+        return self.features.shape[1]
+
+
 def calc_wavelet_transform(feature_data, min_width=12, max_width=120, n_waves=25):
     wavelet_widths = np.logspace(np.log10(min_width), np.log10(max_width), n_waves)
     transformed = sig.cwt(feature_data, sig.morlet2, widths=wavelet_widths)
