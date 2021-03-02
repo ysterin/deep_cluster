@@ -330,6 +330,7 @@ class VerificationApp(tk.Frame):
     def save(self):
         if not self.to_save:
             return
+        print("saving dataframe...")
         df = pd.DataFrame.from_records(self.saved_triplets)
         path = 'triplets/data/selected_triplets_verificatio1.csv'
         mode = 'a' if os.path.exists(path) else 'w'
@@ -341,7 +342,7 @@ class VerificationApp(tk.Frame):
         self.save()
         self.root.quit()
 
-data_root = Path("/home/orel/Storage/Data/K6/2020-03-30/Down")
+data_root = Path("/home/orel/Storage/Data/K6/2020-03-26/Down")
 #data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
 # landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
 # video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
