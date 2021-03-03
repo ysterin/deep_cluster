@@ -15,6 +15,8 @@ import pandas as pd
 def interpolate_indexes(data, idxs):
     segments = np.split(idxs, np.where(np.diff(idxs) > 1)[0] + 1)
     for seg in segments:
+        if len(seg) == 0:
+            continue
         if seg[0] == 0:
             data[seg[0]:seg[-1]+1] = data[seg[-1] + 1]
         elif seg[-1] == len(data) - 1:

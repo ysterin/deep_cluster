@@ -3,7 +3,7 @@ import sys
 import os
 import numpy as np
 import cv2 as cv
-from PIL import Image
+from scipy import signal as sig
 from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
@@ -34,7 +34,7 @@ def timethis(label):
 
 
 def get_seg_clip(vid, seg, n_frames, fps=120):
-    frames = vid[seg.start_frame: seg.start_frame + seg.n_frames: 240//fps]
+    frames = vid[seg.start_frame: seg.start_frame + seg.n_frames: int(math.ceil(vid.fps/fps))]
     frames = list(frames)
     if n_frames < len(frames):
         n_frames_to_discard = len(frames) - n_frames
@@ -47,11 +47,12 @@ def get_seg_clip(vid, seg, n_frames, fps=120):
     return np.stack(frames)
 
 
-def get_random_clips(vid, n_frames=240, max_n_clips=100, fps=60):
+def get_random_clips(vid, duration=0.5, max_n_clips=100, fps=60):
     for i in range(max_n_clips):
         random_idxs = np.random.randint(0, 3*10**5, size=(3,))
-        print(vid[random_idxs[0]].shape)
-        yield [vid[idx:idx + n_frames:240//fps] for idx in random_idxs]
+        # print(vid[random_idxs[0]].shape)
+        n_frames = int(duration * vid.fps)
+        yield [vid[idx:idx + n_frames: int(math.ceil(vid.fps/fps))] for idx in random_idxs]
 
 '''
 A widget for displaying animation.
@@ -154,7 +155,7 @@ class App(tk.Frame):
         self.next_button.pack(side=tk.BOTTOM)
         self.ilabel = tk.Label(self, text=str(self.i), font=("Courier", 32))
         self.ilabel.pack(side=tk.LEFT)
-        if self.encoded is not None:
+        if self.encoded is not None or True:
             self.dist_label1 = tk.Label(self, text='distance from anchor to positive:')
             self.dist_label1.pack(side=tk.BOTTOM)
             self.dist_label2 = tk.Label(self, text='distance from anchor to negative:')
@@ -178,12 +179,26 @@ class App(tk.Frame):
         self.pack()
 
     def sample_random_triplets(self, n_frames=120, fps=120):
-        random_idxs = np.random.randint(len(self.video) - 240, size=3)
-        self.segments = [slice(idx, idx + n_frames, self.video.fps//fps) for idx in random_idxs]
+        from scipy import signal as sig
+        random_idxs = np.random.randint(len(self.video) - self.video.fps, size=3)
+        while True:
+            random_idxs = np.random.randint(len(self.video) - self.video.fps, size=3)
+            self.segments = [slice(idx, idx + n_frames, int(math.ceil(self.video.fps/fps))) for idx in random_idxs]
+            # break
+            for seg in self.segments:
+                # landmarks = self.video.landmarks[seg]
+                data =self.video.landmarks[seg].T
+                filt = sig.butter(4, 6, btype='low', output='ba', fs=self.video.fps)
+                filtered = sig.filtfilt(*filt, data).T
+                avg_diff = np.linalg.norm(np.diff(filtered, axis=0), axis=-1).mean()
+                if avg_diff < 0.05:
+                    break
+            else:
+                break
 
         # enc_segments = [slice(idx // 4 + 15, (idx + n_frames) // 4 - 15 + 1) for idx in random_idxs]
         if self.encoded is not None:
-            self.clip_encodeings = [self.encoded[idx // 4] for idx in random_idxs]
+            self.clip_encodeings = [self.encoded[idx // int(len(self.video)/len(self.encoded))] for idx in random_idxs]
         # print(self.clip_encodeings[0].shape)
         self.clips = [self.video[seg] for seg in self.segments]
 
@@ -201,9 +216,19 @@ class App(tk.Frame):
             dist2 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[2])
             dist3 = np.linalg.norm(self.clip_encodeings[2] - self.clip_encodeings[1])
             print(dist1, dist2, dist3)
-            self.dist_label1['text'] = f"distance between anchor and sample1: {dist1:.2f}"
-            self.dist_label2['text'] = f"distance between anchor and sample2: {dist2:.2f}"
-            self.dist_label3['text'] = f"distance between sample2 and sample1: {dist3:.2f}"
+            # self.dist_label1['text'] = f"distance between anchor and sample1: {diffs[0]:.2f}"
+            # self.dist_label2['text'] = f"distance between anchor and sample2: {diffs[1]:.2f}"
+            # self.dist_label3['text'] = f"distance between sample2 and sample1: {diffs[2]:.2f}"
+        diffs = []
+        for i in range(3):
+            seg = self.segments[i]
+            data =self.video.landmarks[seg].T
+            filt = sig.butter(4, 6, btype='low', output='ba', fs=self.video.fps)
+            filtered = sig.filtfilt(*filt, data).T
+            diffs.append(np.linalg.norm(np.diff(filtered, axis=0), axis=-1).mean())
+        self.dist_label1['text'] = f"anchor: {diffs[0]:.4f}"
+        self.dist_label2['text'] = f"sample 1: {diffs[1]:.4f}"
+        self.dist_label3['text'] = f"sample2: {diffs[2]:.4f}"
         self.load_clips()
 
     def save_triplet(self):
@@ -293,9 +318,9 @@ class VerificationApp(tk.Frame):
             print(e)
             # import pdb; pdb.set_trace()
             return
-        self.segments = [slice(seg[0], seg[1], self.video.fps//fps) for seg in segments]
+        self.segments = [slice(seg[0], seg[1], int(math.ceil(vid.fps/fps))) for seg in segments]
         if self.encoded is not None:
-            self.clip_encodeings = [self.encoded[seg[0] // 4] for seg in segments]
+            self.clip_encodeings = [self.encoded[idx // int(len(self.video)/len(self.encoded))] for idx in random_idxs]
         self.clips = [self.video[seg] for seg in self.segments]
 
     def reload_display(self):
@@ -355,7 +380,8 @@ def __main__():
     # X_encoded_dict = {os.path.split(k)[-1][:4]: v for k, v in X_encoded_dict.items()}
     # x_encoded = X_encoded_dict[data_root.name]
     # print(x_encoded.shape, )
-    video = LandmarksVideo(data_root, include_landmarks=False)
+    video = LandmarksVideo(data_root, include_landmarks=True)
+    print(video.fps)
     # print(x_encoded.shape, len(video.landmarks))
     # df = pd.read_csv('triplets/data/selected_triplets.csv')
     app = App(root, video)
