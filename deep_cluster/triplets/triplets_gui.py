@@ -20,7 +20,7 @@ import tkinter as tk
 from PIL import ImageTk, Image
 from threading import Thread, Event
 from multiprocessing import Process
-from landmarks_video import Video, LandmarksVideo, color_pallete
+from landmarks_video import Video, LandmarksVideo
 from sample_triplets import Segment, triplets_segments_gen, load_segments
 import math
 from contextlib import contextmanager
@@ -188,10 +188,10 @@ class App(tk.Frame):
             for seg in self.segments:
                 # landmarks = self.video.landmarks[seg]
                 data =self.video.landmarks[seg].T
-                filt = sig.butter(4, 6, btype='low', output='ba', fs=self.video.fps)
+                filt = sig.butter(4, 3, btype='low', output='ba', fs=self.video.fps)
                 filtered = sig.filtfilt(*filt, data).T
                 avg_diff = np.linalg.norm(np.diff(filtered, axis=0), axis=-1).mean()
-                if avg_diff < 0.05:
+                if avg_diff < 0.075:
                     break
             else:
                 break
@@ -209,7 +209,7 @@ class App(tk.Frame):
 
     def reload_display(self):
         self.display.destroy()
-        self.display = ClipsDisplay(self, self.clips, fps=30)
+        self.display = ClipsDisplay(self, self.clips, fps=60)
         self.display.pack(side=tk.TOP)
         if self.encoded is not None:
             dist1 = np.linalg.norm(self.clip_encodeings[0] - self.clip_encodeings[1])
@@ -223,7 +223,7 @@ class App(tk.Frame):
         for i in range(3):
             seg = self.segments[i]
             data =self.video.landmarks[seg].T
-            filt = sig.butter(4, 6, btype='low', output='ba', fs=self.video.fps)
+            filt = sig.butter(4, 3, btype='low', output='ba', fs=self.video.fps)
             filtered = sig.filtfilt(*filt, data).T
             diffs.append(np.linalg.norm(np.diff(filtered, axis=0), axis=-1).mean())
         self.dist_label1['text'] = f"anchor: {diffs[0]:.4f}"
@@ -237,6 +237,8 @@ class App(tk.Frame):
                                     'sample1': (self.segments[1].start, self.segments[1].stop),
                                     'sample2': (self.segments[2].start, self.segments[2].stop),
                                     'selected': self.display.choice_var.get()})
+        if self.i % 20 == 0:
+            self.save()
 
     def load_clips(self):
         print("start load clips")
@@ -367,7 +369,8 @@ class VerificationApp(tk.Frame):
         self.save()
         self.root.quit()
 
-data_root = Path("/home/orel/Storage/Data/K6/2020-03-26/Down")
+# data_root = Path("/home/orel/Storage/Data/K6/2020-03-26/Down")
+data_root = Path("/home/orel/Storage/Data/K7/2020-08-04/Down")
 #data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
 # landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
 # video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
@@ -376,16 +379,9 @@ data_root = Path("/home/orel/Storage/Data/K6/2020-03-26/Down")
 def __main__():
     print(os.getcwd())
     root = tk.Tk()
-    # X_encoded_dict = np.load('models/11_03/x_encoded_dict.pkl', allow_pickle=True)
-    # X_encoded_dict = {os.path.split(k)[-1][:4]: v for k, v in X_encoded_dict.items()}
-    # x_encoded = X_encoded_dict[data_root.name]
-    # print(x_encoded.shape, )
-    video = LandmarksVideo(data_root, include_landmarks=True)
+    video = LandmarksVideo(data_root, include_landmarks=False)
     print(video.fps)
-    # print(x_encoded.shape, len(video.landmarks))
-    # df = pd.read_csv('triplets/data/selected_triplets.csv')
     app = App(root, video)
-    #app = VerificationApp(root, video, df.iloc[20:], encoded=x_encoded)
     root.mainloop()
 
 

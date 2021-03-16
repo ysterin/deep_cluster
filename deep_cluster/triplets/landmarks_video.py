@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from deep_cluster.dataloader import LandmarkDataset, SequenceDataset
 import os
 import numpy as np
+from matplotlib import cm
 import torch
 from torch.utils.data import ConcatDataset
 import pickle
@@ -100,20 +101,22 @@ def get_files(vid_dir):
     return vid_file, landmarks_file
 
 
-color_pallete = [(0, 204, 0), (255, 255, 0), (255, 102, 102), (255, 102, 178), (102, 0, 204), (0, 0, 204),
-                 (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
-                 (160, 160, 160)]
+# color_pallete = [(0, 204, 0), (255, 255, 0), (255, 102, 102), (255, 102, 178), (102, 0, 204), (0, 0, 204),
+#                  (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
+#                  (160, 160, 160)]
 
 
-def get_rotation_angle(landmarks):
-    vector = landmarks[0] - landmarks[8]
+def get_rotation_angle(landmarks, body_parts):
+    nose_position = landmarks[body_parts.index('nose')]
+    tailbase_position = landmarks[body_parts.index('tailbase')]
+    vector = nose_position - tailbase_position
     angle = np.arctan2(vector[1], vector[0])
     return angle * 180 / np.pi + 90
 
 
-def rotate_frames_and_landmarks(frames, landmarks):
+def rotate_frames_and_landmarks(frames, landmarks, body_parts):
     h, w, *_ = frames[0].shape
-    angle = get_rotation_angle(landmarks[len(frames) // 2])
+    angle = get_rotation_angle(landmarks[len(frames) // 2], body_parts)
     rot_mat = cv.getRotationMatrix2D((h // 2, w // 2), angle, 0.8)
     rot_frames = [cv.warpAffine(frame, rot_mat, (h, w)) for frame in frames]
     rot_landmarks = np.append(landmarks, np.ones_like(landmarks[..., :1]), axis=-1) @ rot_mat.T
@@ -121,9 +124,10 @@ def rotate_frames_and_landmarks(frames, landmarks):
 
 
 class LandmarksVideo(object):
-    color_pallete = [(0, 204, 0), (255, 255, 0), (255, 102, 102), (255, 102, 178), (102, 0, 204), (0, 0, 204),
-                     (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
-                     (160, 160, 160)]
+    color_pallete = [[int(c*255) for c in color[:3]] for color in cm.tab20.colors]
+    # color_pallete = [(0, 204, 0), (255, 255, 0), (255, 102, 102), (255, 102, 178), (102, 0, 204), (0, 0, 204),
+    #                  (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
+    #                  (160, 160, 160)]
 
     def __init__(self, vid_dir=data_root / '2020-03-23' / 'Down', include_landmarks=True):
         self.vid_dir = vid_dir
@@ -134,6 +138,7 @@ class LandmarksVideo(object):
         self.length = len(self.video)
         self.landmarks = LandmarkDataset(landmarks_file, normalize=False)
         self.normalized_landmarks = LandmarkDataset(landmarks_file, normalize=True)
+        self.body_parts = list(self.landmarks.body_parts)
 
     def __len__(self):
         return self.length
@@ -156,7 +161,7 @@ class LandmarksVideo(object):
     def get_slice(self, s):
         frames = self.video[s]
         landmarks = self.landmarks[s]
-        frames, landmarks = rotate_frames_and_landmarks(frames, landmarks)
+        frames, landmarks = rotate_frames_and_landmarks(frames, landmarks, self.body_parts)
         frames = np.stack(frames, axis=0)
         min_xy, max_xy = landmarks.min((0, 1)) - 30, landmarks.max((0, 1)) + 30
         min_xy, max_xy = np.clip(min_xy, 0, self.video.shape).astype(np.int), np.clip(max_xy, 0,

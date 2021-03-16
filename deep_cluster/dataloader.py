@@ -35,22 +35,22 @@ def clear_low_likelihood(data, likelihood, thresh=0.8):
     return interpolate_mask(data, likelihood < thresh)
 
 
-def clear_outliers(data, hpf_freq=60, cutoff=4, fs=240):
+def clear_outliers(data, hpf_freq=30, cutoff=4, fs=240):
     cutoff = fs / hpf_freq
     filt = sig.butter(4, hpf_freq, btype='high', output='ba', fs=fs)
     filtered = sig.filtfilt(*filt, data)
     return interpolate_mask(data, np.abs(filtered) > cutoff)
 
 
-def smooth(data, lpf_freq=20, fs=240):
+def smooth(data, lpf_freq=10, fs=240):
     filt = sig.butter(4, lpf_freq, btype='low', output='ba', fs=fs)
     filtered = sig.filtfilt(*filt, data)
     return filtered
 
 
-def preproc(data, likelihood):
+def preproc(data, likelihood, fps=120):
     data = clear_low_likelihood(data, likelihood)
-    return smooth(clear_outliers(data))
+    return smooth(clear_outliers(data, fs=fps), fs=fps)
 
 def read_df(df_file):
     df = pd.read_hdf(df_file)
@@ -64,12 +64,12 @@ def read_df(df_file):
 '''
 process dataframe by smoothing the x and y coordinates
 '''
-def process_df(df):
+def process_df(df, fps=120):
     body_parts = pd.unique([col[0] for col in df.columns])
     smoothed_data = {}
     for part in body_parts:
-        smoothed_data[(part, 'x')] = preproc(df[part].x, df[part].likelihood)
-        smoothed_data[(part, 'y')] = preproc(df[part].y, df[part].likelihood)
+        smoothed_data[(part, 'x')] = preproc(df[part].x, df[part].likelihood, fps=fps)
+        smoothed_data[(part, 'y')] = preproc(df[part].y, df[part].likelihood, fps=fps)
         smoothed_data[(part, 'likelihood')] = df[part].likelihood.copy()
 
     smooth_df = pd.DataFrame.from_dict(smoothed_data)
@@ -96,11 +96,18 @@ def extract_coordinates(df: pd.DataFrame, normalize: bool = True):
 # A dataset of landmarks
 # args: landmarks file: .h5 file of landmarks, from DeepLabCut
 class LandmarkDataset(data.Dataset):
-    def __init__(self, landmarks_file, normalize=True):
+    def __init__(self, landmarks_file, normalize=True, fps=None):
         super(LandmarkDataset, self).__init__()
-        self.file = landmarks_file
+        self.file = Path(landmarks_file)
+        if not fps:
+            if self.file.parent.parent.parent.name == 'K7':
+                fps = 120
+            elif self.file.parent.parent.parent.name == 'K6':
+                fps = 240
+            else:
+                raise Exception(f"self.file.parent.parent.parent.name is {self.file.parent.parent.parent.name}")
         self.df = read_df(landmarks_file)
-        self.df = process_df(self.df)
+        self.df = process_df(self.df, fps=fps)
         self.coords = extract_coordinates(self.df, normalize)
         self.body_parts = pd.unique([col[0] for col in self.df.columns])
         
