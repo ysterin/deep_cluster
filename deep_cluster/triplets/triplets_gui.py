@@ -23,6 +23,7 @@ from multiprocessing import Process
 from landmarks_video import Video, LandmarksVideo
 from sample_triplets import Segment, triplets_segments_gen, load_segments
 import math
+from memory_profiler import profile
 from contextlib import contextmanager
 
 @contextmanager
@@ -103,12 +104,14 @@ class Animation(tk.Canvas):
             print("[INFO] caught a RuntimeError")
 
     def destroy(self):
+        del self.images
         self.stop.set()
         self.thread.join(0.1)
         super().destroy()
 
 
 class ClipsDisplay(tk.Frame):
+    @profile
     def __init__(self, root, clips, fps=30, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.window = tk.Frame(self)
@@ -132,11 +135,11 @@ class ClipsDisplay(tk.Frame):
         self.window.pack()
         self.pack()
 
-    # def destroy(self):
-    #     self.anchor_anim.destroy()
-    #     self.pos_anim.destroy()
-    #     self.neg_anim.destroy()
-    #     super().destroy()
+    def destroy(self):
+        self.anchor_anim.destroy()
+        self.pos_anim.destroy()
+        self.neg_anim.destroy()
+        super().destroy()
 
 import pandas as pd
 class App(tk.Frame):
@@ -178,6 +181,7 @@ class App(tk.Frame):
         self.bind('e', lambda event: self.save())
         self.pack()
 
+    @profile
     def sample_random_triplets(self, n_frames=120, fps=120):
         from scipy import signal as sig
         random_idxs = np.random.randint(len(self.video) - self.video.fps, size=3)
@@ -200,6 +204,8 @@ class App(tk.Frame):
         if self.encoded is not None:
             self.clip_encodeings = [self.encoded[idx // int(len(self.video)/len(self.encoded))] for idx in random_idxs]
         # print(self.clip_encodeings[0].shape)
+        if hasattr(self, 'clips'):
+            del self.clips
         self.clips = [self.video[seg] for seg in self.segments]
 
     def next(self, event=None):
@@ -207,6 +213,7 @@ class App(tk.Frame):
         self.i += 1
         self.reload_display()
 
+    @profile
     def reload_display(self):
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=60)
@@ -240,6 +247,7 @@ class App(tk.Frame):
         if self.i % 20 == 0:
             self.save()
 
+    @profile
     def load_clips(self):
         print("start load clips")
         # anchor, pos, neg = next(self.triplets_gen)
