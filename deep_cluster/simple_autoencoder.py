@@ -105,7 +105,7 @@ class PLAutoencoder(pl.LightningModule):
             except OSError:
                 pass
         self.body_parts = landmark_datasets[0].body_parts
-        coords = [sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for ds in landmark_datasets]
+        coords = [sig.decimate(ds.coords, q=240 // landmarks_datasets[0].fps, axis=0).astype(np.float32) for ds in landmark_datasets]
         N, n_coords, _ = coords[0].shape
         self.coords = coords
         train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in coords]
