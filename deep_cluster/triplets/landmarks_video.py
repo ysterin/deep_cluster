@@ -129,15 +129,15 @@ class LandmarksVideo(object):
     #                  (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
     #                  (160, 160, 160)]
 
-    def __init__(self, vid_dir=data_root / '2020-03-23' / 'Down', include_landmarks=True):
+    def __init__(self, vid_dir=data_root / '2020-03-23' / 'Down', include_landmarks=True, smooth=True):
         self.vid_dir = vid_dir
         self.include_landmarks = include_landmarks
         vid_file, landmarks_file = get_files(vid_dir)
         self.vid_file = vid_file
         self.video = Video(vid_file)
         self.length = len(self.video)
-        self.landmarks = LandmarkDataset(landmarks_file, normalize=False)
-        self.normalized_landmarks = LandmarkDataset(landmarks_file, normalize=True)
+        self.landmarks = LandmarkDataset(landmarks_file, normalize=False, smooth=smooth)
+#         self.normalized_landmarks = LandmarkDataset(landmarks_file, normalize=True)
         self.body_parts = list(self.landmarks.body_parts)
 
     def __len__(self):

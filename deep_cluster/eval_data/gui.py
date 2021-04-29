@@ -182,7 +182,7 @@ class App(tk.Frame):
         self.pack()
 
     @profile
-    def sample_random_triplets(self, n_frames=120, fps=120):
+    def sample_random_triplets(self, n_frames=60, fps=120):
         from scipy import signal as sig
         random_idxs = np.random.randint(len(self.video) - self.video.fps, size=3)
         while True:
