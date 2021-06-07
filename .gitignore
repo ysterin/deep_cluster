@@ -6,7 +6,8 @@
 **/*.jpg
 **/*.png
 
-**/.idea/
+**/.idea/**
+**/.idea
 
 lightning_logs
 clips/
