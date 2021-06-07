@@ -5,6 +5,9 @@
 **/*.pyc
 **/*.jpg
 **/*.png
+
+**/.idea/
+
 lightning_logs
 clips/
 deep_cluster-deep_cluster/
