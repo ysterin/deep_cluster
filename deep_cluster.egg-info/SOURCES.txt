@@ -13,3 +13,4 @@ deep_cluster/triplets/__init__.py
 deep_cluster/triplets/landmarks_video.py
 deep_cluster/triplets/sample_triplets.py
 deep_cluster/triplets/triplets_gui.py
+deep_cluster/triplets/triplets_model.py
