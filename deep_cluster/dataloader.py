@@ -3,18 +3,26 @@ from torch import utils
 from torch.utils import data
 import pandas as pd
 import numpy as np
-from pathlib import Path 
-
+from pathlib import Path
+import bisect
+import cv2 as cv
+import re
+from torch.utils.data.dataset import ConcatDataset, Subset, TensorDataset
+from torch.utils.data.dataloader import DataLoader
 pd.set_option('mode.chained_assignment', None)
+from itertools import chain
 
 import numpy as np
 import scipy.signal as sig
 import pandas as pd
+import pytorch_lightning as pl
 
 
 def interpolate_indexes(data, idxs):
     segments = np.split(idxs, np.where(np.diff(idxs) > 1)[0] + 1)
     for seg in segments:
+        if len(seg) == 0:
+            continue
         if seg[0] == 0:
             data[seg[0]:seg[-1]+1] = data[seg[-1] + 1]
         elif seg[-1] == len(data) - 1:
@@ -29,26 +37,36 @@ def interpolate_mask(data, mask):
     return interpolate_indexes(data, idxs)
 
 
-def clear_low_likelihood(data, likelihood, thresh=0.5):
+def clear_low_likelihood(data, likelihood, thresh=0.8):
     return interpolate_mask(data, likelihood < thresh)
 
 
-def clear_outliers(data, hpf_freq=60, cutoff=4, fs=240):
+def clear_outliers(data, hpf_freq=30, fs=240):
     cutoff = fs / hpf_freq
     filt = sig.butter(4, hpf_freq, btype='high', output='ba', fs=fs)
     filtered = sig.filtfilt(*filt, data)
     return interpolate_mask(data, np.abs(filtered) > cutoff)
 
 
-def smooth(data, lpf_freq=20, fs=240):
+def smooth(data, lpf_freq=10, fs=240):
     filt = sig.butter(4, lpf_freq, btype='low', output='ba', fs=fs)
     filtered = sig.filtfilt(*filt, data)
     return filtered
 
 
-def preproc(data, likelihood):
+def preproc(data, likelihood, fps=120):
     data = clear_low_likelihood(data, likelihood)
-    return smooth(clear_outliers(data))
+    return smooth(clear_outliers(data, fs=fps), fs=fps)
+
+import os
+
+def find_video_file(df_file: Path):
+    file_id = re.match(r'^(\d+)', df_file.name).groups()[0]
+    file_dir = df_file.parent
+    video_file = file_dir / f'{file_id}.MP4'
+    assert os.path.exists(video_file), f'file {video_file} does not exist!'
+    return video_file
+
 
 def read_df(df_file):
     df = pd.read_hdf(df_file)
@@ -56,23 +74,71 @@ def read_df(df_file):
     df.index.name = 'index'
     df.index = df.index.map(int)
     df = df.applymap(float)
+    df.attrs['file'] = df_file
+    df.attrs['video_file'] = find_video_file(df_file)
+    df.attrs['fps'] = 120
     return df
 
 
 '''
 process dataframe by smoothing the x and y coordinates
 '''
-def process_df(df):
-    body_parts = pd.unique([col[0] for col in df.columns])
+def process_df(df, fps=120):
+    body_parts = df.columns.levels[0]
+    # body_parts = pd.unique([col[0] for col in df.columns])
     smoothed_data = {}
     for part in body_parts:
-        smoothed_data[(part, 'x')] = preproc(df[part].x, df[part].likelihood)
-        smoothed_data[(part, 'y')] = preproc(df[part].y, df[part].likelihood)
+        smoothed_data[(part, 'x')] = preproc(df[part].x, df[part].likelihood, fps=fps)
+        smoothed_data[(part, 'y')] = preproc(df[part].y, df[part].likelihood, fps=fps)
         smoothed_data[(part, 'likelihood')] = df[part].likelihood.copy()
 
     smooth_df = pd.DataFrame.from_dict(smoothed_data)
+    smooth_df.attrs = df.attrs
+    smooth_df.columns = df.columns
     return smooth_df
 
+'''
+rotate the coordinates in the data frame to standard coordinate system, with the tailbase at (0,0).
+args:va
+    df: data frame with coordinates.
+'''
+def standardize_df(df, lock_theta=False):
+    df = df.copy()
+    N = len(df)
+    body_parts = df.columns.levels[0]
+    # body_parts = pd.unique([col[0] for col in df.columns])
+    if 'likelihood' in df.columns.remove_unused_levels().levels[1]:
+        xy_df = df.drop(axis=1, columns='likelihood', level=1)
+    else:
+        xy_df = df
+    coords = xy_df.values.reshape(N, -1, 2)
+    base_tail_coords = xy_df.tailbase.values[:, np.newaxis, :]
+    centered_coords = coords - base_tail_coords
+    centered_nose_coords = xy_df.nose.values - xy_df.tailbase.values
+    thetas = np.arctan2(centered_nose_coords[:, 1], centered_nose_coords[:, 0])
+    if lock_theta:
+        thetas = thetas.mean(axis=0).repeat(N, axis=0)
+    rotation_matrices = np.stack([np.stack([np.cos(thetas), np.sin(thetas)], axis=-1),
+                                  np.stack([np.sin(thetas), -np.cos(thetas)], axis=-1)], axis=-1)
+    normalized_coords = np.einsum("nij,nkj->nki", rotation_matrices, centered_coords)
+    for i, part in enumerate(body_parts):
+        df[part]['x'] = normalized_coords[:,i,0]
+        df[part]['y'] = normalized_coords[:,i,1]
+    return df
+
+'''
+normalize the coordinates in dataframe to have mean of 0 and std of 1.
+'''
+def normalize_df(df, means=None, stds=None):
+    body_parts = df.columns.levels[0]
+    # body_parts = pd.unique([col[0] for col in df.columns])
+    if means is None:
+        means = df.mean()
+        stds = df.std()
+    for part in body_parts:
+        df[(part, 'x')] = (df[(part, 'x')] - means[part]['x']) / (stds[part]['x'] + 1e-8)
+        df[(part, 'y')] = (df[(part, 'y')] - means[part]['y']) / (stds[part]['y'] + 1e-8)
+    return df
 
 # extract and possibly normalize the coordinates to shared coordinate base - the tail-base at (0, 0), and nose on the Y axis. 
 def extract_coordinates(df: pd.DataFrame, normalize: bool = True):
@@ -90,17 +156,36 @@ def extract_coordinates(df: pd.DataFrame, normalize: bool = True):
     normalized_coords = np.einsum("nij,nkj->nki", rotation_matrices, centered_coords)
     return normalized_coords
 
+def find_segments(df, threshold=0.95, min_length=60):
+    df = df.copy()
+    body_parts = df.columns.levels[0]
+    confidence = np.prod(np.stack([df[bp].likelihood.values for bp in body_parts]), axis=0)
+    # high_confidence_bool = np.logical_and(df.confidence > 0.99, smooth(df.confidence, lpf_freq=1.0, fs=video.fps) > 0.99)
+    idxs = np.where(confidence > threshold)[0]
+    segments = np.split(idxs, np.where(np.diff(idxs) > 1)[0] + 1)
+    segments = [seg for seg in segments if len(seg) > min_length]
+    return segments
 
 # A dataset of landmarks
 # args: landmarks file: .h5 file of landmarks, from DeepLabCut
 class LandmarkDataset(data.Dataset):
-    def __init__(self, landmarks_file, normalize=True):
+    def __init__(self, landmarks_file, normalize=True, fps=None, smooth=True):
         super(LandmarkDataset, self).__init__()
-        self.file = landmarks_file
+        self.file = Path(landmarks_file)
+        if not fps:
+            if self.file.parent.parent.parent.name == 'K7':
+                fps = 120
+            elif self.file.parent.parent.parent.name == 'K6':
+                fps = 240
+            else:
+                raise Exception(f"self.file.parent.parent.parent.name is {self.file.parent.parent.parent.name}")
         self.df = read_df(landmarks_file)
-        self.df = process_df(self.df)
+        self.fps = fps
+        if smooth:
+            self.df = process_df(self.df, fps=fps)
         self.coords = extract_coordinates(self.df, normalize)
-        self.body_parts = pd.unique([col[0] for col in self.df.columns])
+        # self.body_parts = pd.unique([col[0] for col in self.df.columns])
+        self.body_parts = self.df.columns.levels[0]
         
     def __getitem__(self, idx):
         return self.coords[idx]
@@ -108,7 +193,28 @@ class LandmarkDataset(data.Dataset):
     def __len__(self):
         return self.coords.shape[0]
 
-    
+
+class FeaturesDataset(data.Dataset):
+    def __init__(self, landmarks_file, normalize=True):
+        super(FeaturesDataset, self).__init__()
+        self.file = landmarks_file
+        self.df = read_df(landmarks_file)
+        self.df = process_df(self.df)
+        self.features = extract_features(self.df)
+        # self.coords = extract_coordinates(self.df, normalize)
+        # body_parts = df.columns.levels[0]
+
+    def __getitem__(self, idx):
+        return self.features[idx]
+
+    def __len__(self):
+        return self.features.shape[0]
+
+    @property
+    def n_features(self):
+        return self.features.shape[1]
+
+
 def calc_wavelet_transform(feature_data, min_width=12, max_width=120, n_waves=25):
     wavelet_widths = np.logspace(np.log10(min_width), np.log10(max_width), n_waves)
     transformed = sig.cwt(feature_data, sig.morlet2, widths=wavelet_widths)
@@ -160,11 +266,13 @@ Args:
 '''
 class SequenceDataset(data.Dataset):
     eps = 1e-8
-    def __init__(self, data, seqlen=60, step=10, diff=False, flatten=True):
+    def __init__(self, data_frame, seqlen=60, step=10, diff=False, flatten=True):
         super(SequenceDataset, self).__init__()
         self.seqlen, self.step, self.diff, self.flatten = seqlen, step, diff, flatten
-        self.data = data
-        self.mean, self.std = self._mean(), self._std()
+        self.data_frame = data_frame
+        self.data = data_frame.values.astype(np.float32)
+        self.mean, self.std = 0., 1.
+        # self.mean, self.std = self._mean(), self._std()
 
     # calculates mean for standardization
     def _mean(self):
@@ -186,6 +294,10 @@ class SequenceDataset(data.Dataset):
     def __len__(self):
         return (len(self.data) - self.seqlen) // self.step
 
+    def get_indexes(self, i):
+        offset = self.step * i
+        return self.data_frame.index[offset: offset + self.seqlen]
+
     def __getitem__(self, i):
         offset = self.step * i
         item = self.data[offset: offset + self.seqlen]
@@ -203,6 +315,83 @@ class SequenceDataset(data.Dataset):
         item = (item - self.mean) / (self.std + self.eps)
         return item
 
+    
+def find_sub_dataset_idx(ds: ConcatDataset, idx):
+    dataset_idx = bisect.bisect_right(ds.cumulative_sizes, idx)
+    if dataset_idx == 0:
+        sample_idx = idx
+    else:
+        sample_idx = idx - ds.cumulative_sizes[dataset_idx - 1]
+    return dataset_idx, sample_idx
+
+
+def find_frame(ds, idx):
+    ds_id, idx = find_sub_dataset_idx(ds, idx)
+    ds = ds.datasets[ds_id]
+    if isinstance(ds, Subset):
+        ds, idx = ds.dataset, ds.indices[idx]
+    ds_id, idx = find_sub_dataset_idx(ds, idx)
+    ds = ds.datasets[ds_id]
+    video_file = ds.data_frame.attrs['video_file']
+    frame_idxs = ds.get_indexes(idx)
+    return video_file, frame_idxs
+
+def filter_segments_by_energy(min_energy=1e-7):
+    def filter(segment_df):
+        data = segment_df.values.astype(np.float32)
+        ff, Pxx = sig.periodogram(data.T, fs=segment_df.attrs['fps'])
+        energy = Pxx.mean()
+        return energy > min_energy
+
+
+def drop_parts(df, parts):
+    if not parts:
+        return df
+    df = df.drop(labels=parts, axis=1, level=0)
+    df.columns = df.columns.remove_unused_levels()
+    return df
+
+class LandmarksDataModule(pl.LightningDataModule):
+    def __init__(self, landmark_files, fps=120, seqlen=60, step=30, bs=32, to_drop=['tail2']):
+        super(LandmarksDataModule, self).__init__()
+        self.landmark_files = landmark_files
+        self.bs = bs
+        self.fps, self.seqlen, self.step = fps, seqlen, step
+        self.to_drop = to_drop
+
+    def prepare_data(self, *args, **kwargs):
+        data_frames = list(map(read_df, self.landmark_files))
+        self.raw_data = data_frames
+        data_frames = map(lambda df: drop_parts(df, self.to_drop), data_frames)
+        data_frames = map(lambda df: process_df(df, self.fps), data_frames)
+        data_frames = list(map(standardize_df, data_frames))
+        all_df = pd.concat(data_frames)
+        data_frames = list(map(lambda df: normalize_df(df, all_df.mean(), all_df.std()), data_frames))
+        segments_list = list(map(find_segments, data_frames))
+        self.segments_list = segments_list
+        data_frames = list(map(lambda df:  df.drop(axis=1, columns='likelihood', level=1), data_frames))
+        segment_dfs = [[df.iloc[seg] for seg in segments] for df, segments in zip(data_frames, segments_list)]
+        # segment_dfs = [[df.drop(axis=1, columns='likelihood', level=1) for df in dfs] for dfs in segment_dfs]
+        sequence_datasets = [[SequenceDataset(df, seqlen=self.seqlen, step=self.step, diff=False) for df in dfs]
+                                 for dfs in segment_dfs]
+        datasets = [ConcatDataset(dsets) for dsets in sequence_datasets]
+        train_dsets = [Subset(ds, range(0, int(0.8 * len(ds)))) for ds in datasets]
+        valid_dsets = [Subset(ds, range(int(0.8 * len(ds)), len(ds))) for ds in datasets]
+        self.train_ds = ConcatDataset(train_dsets)
+        self.valid_ds = ConcatDataset(valid_dsets)
+        self.all_ds = ConcatDataset(datasets)
+        self.data_frames = data_frames
+        self.datasets = datasets
+        self.all_df = all_df
+
+    def find_frame(self, ):
+        pass
+    
+    def train_dataloader(self, *args, **kwargs) -> DataLoader:
+        return DataLoader(self.train_ds, batch_size=self.bs, shuffle=True)
+
+    def val_dataloader(self, *args, **kwargs) -> DataLoader:
+        return DataLoader(self.valid_ds, batch_size=self.bs, shuffle=False)
 
 
 def main():

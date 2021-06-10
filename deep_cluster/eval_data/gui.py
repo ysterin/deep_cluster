@@ -111,7 +111,7 @@ class Animation(tk.Canvas):
 
 
 class ClipsDisplay(tk.Frame):
-#     @profile
+    @profile
     def __init__(self, root, clips, fps=30, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.window = tk.Frame(self)
@@ -143,18 +143,15 @@ class ClipsDisplay(tk.Frame):
 
 import pandas as pd
 class App(tk.Frame):
-    def __init__(self, root, video, encoded=None, save_file=None, *args, **kwargs):
+    def __init__(self, root, video, encoded=None, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.root = root
         self.encoded = encoded
         # self.df = pd.DataFrame(columns=['video_file', 'anchor', 'sample1', 'sample2', 'selected'], index=pd.Index(np.arange(100)))
         self.saved_triplets = []
         self.video = video
-        if not save_file:
-            save_file = 'data/selected_triplets.csv'
-        self.save_file = save_file
         # self.triplets_gen = triplet_segment_gen
-        self.i = 1
+        self.i = 0
         self.display = tk.Frame()
         self.display.pack()
         self.next_button = tk.Button(self, command=self.next, text="NEXT")
@@ -183,32 +180,25 @@ class App(tk.Frame):
         self.bind('s', lambda event: self.display.choice_var.set(0))
         self.bind('e', lambda event: self.save())
         self.pack()
-        
-    def filter_segment(self, segment):
-        segment_df = self.video.landmarks.df.loc[segment].drop(['tail1', 'tail2', 'tail3'], axis=1, level=0)
-        confidence = np.prod(segment_df.xs('likelihood', level=1, axis=1, drop_level=True) > 0.95, axis=1)
-        if confidence.mean() < 0.9:
-            return False
-        data = segment_df.drop('likelihood', level=1, axis=1).values.astype(np.float32)
-        ff, Pxx = sig.periodogram(data.T, fs=segment_df.attrs['fps'])
-        energy = Pxx[:,:10].mean()
-#         print('energy: ', energy)
-        if energy < 2e0:
-            return False
-        return True
-    
+
+    @profile
     def sample_random_triplets(self, n_frames=60, fps=120):
-        selected_segments = []
-        n_tries = 0
-        while len(selected_segments) < 3:
-            n_tries += 1
-            start_idx = np.random.randint(len(self.video) - self.video.fps)
-            segment = slice(start_idx, start_idx + n_frames, int(math.ceil(self.video.fps/fps)))
-            if self.filter_segment(segment):
-                selected_segments.append(segment)
-            if n_tries > 1000:
-                raise Exeption("too many tries to sample segments")
-        self.segments = selected_segments
+        from scipy import signal as sig
+        random_idxs = np.random.randint(len(self.video) - self.video.fps, size=3)
+        while True:
+            random_idxs = np.random.randint(len(self.video) - self.video.fps, size=3)
+            self.segments = [slice(idx, idx + n_frames, int(math.ceil(self.video.fps/fps))) for idx in random_idxs]
+            # break
+            for seg in self.segments:
+                # landmarks = self.video.landmarks[seg]
+                data =self.video.landmarks[seg].T
+                filt = sig.butter(4, 3, btype='low', output='ba', fs=self.video.fps)
+                filtered = sig.filtfilt(*filt, data).T
+                avg_diff = np.linalg.norm(np.diff(filtered, axis=0), axis=-1).mean()
+                if avg_diff < 0.075:
+                    break
+            else:
+                break
 
         # enc_segments = [slice(idx // 4 + 15, (idx + n_frames) // 4 - 15 + 1) for idx in random_idxs]
         if self.encoded is not None:
@@ -223,6 +213,7 @@ class App(tk.Frame):
         self.i += 1
         self.reload_display()
 
+    @profile
     def reload_display(self):
         self.display.destroy()
         self.display = ClipsDisplay(self, self.clips, fps=60)
@@ -256,7 +247,7 @@ class App(tk.Frame):
         if self.i % 20 == 0:
             self.save()
 
-#     @profile
+    @profile
     def load_clips(self):
         print("start load clips")
         # anchor, pos, neg = next(self.triplets_gen)
@@ -267,10 +258,10 @@ class App(tk.Frame):
 
     def save(self):
         df = pd.DataFrame.from_records(self.saved_triplets)
-#         save_path = 'data/selected_triplets.csv'
-#         import pdb; pdb.set_trace()
-        mode = 'a' if os.path.exists(self.save_file) else 'w'
-        df.to_csv(path_or_buf=self.save_file, mode=mode)
+        # df.to_json(path_or_buf='triplets/data/selected_triplets.json', orient='records')
+        save_path = 'data/selected_triplets.csv'
+        mode = 'a' if os.path.exists(save_path) else 'r'
+        df.to_csv(path_or_buf=save_path, mode=mode)
         self.saved_triplets = []
 
     def quit(self):
@@ -286,7 +277,7 @@ def decode_seg_string(seg_string):
     return (start_idx, end_idx)
 
 class VerificationApp(tk.Frame):
-    def __init__(self, root, video, df, encoded=None, to_save=True, start_idx=-1, *args, **kwargs):
+    def __init__(self, root, video, df, encoded, to_save=True, start_idx=-1, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.root = root
         self.df = df
@@ -337,7 +328,7 @@ class VerificationApp(tk.Frame):
             print(e)
             # import pdb; pdb.set_trace()
             return
-        self.segments = [slice(seg[0], seg[1], int(math.ceil(self.video.fps/fps))) for seg in segments]
+        self.segments = [slice(seg[0], seg[1], int(math.ceil(vid.fps/fps))) for seg in segments]
         if self.encoded is not None:
             self.clip_encodeings = [self.encoded[idx // int(len(self.video)/len(self.encoded))] for idx in random_idxs]
         self.clips = [self.video[seg] for seg in self.segments]
@@ -387,8 +378,7 @@ class VerificationApp(tk.Frame):
         self.root.quit()
 
 # data_root = Path("/home/orel/Storage/Data/K6/2020-03-26/Down")
-data_root = Path("/home/orel/Storage/Data/K7/")
-
+data_root = Path("/home/orel/Storage/Data/K7/2020-08-04/Down")
 #data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
 # landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
 # video_file = data_root/'2020-03-23'/'Down'/'0008.MP4'
@@ -397,11 +387,9 @@ data_root = Path("/home/orel/Storage/Data/K7/")
 def __main__():
     print(os.getcwd())
     root = tk.Tk()
-    vid_dir = list(data_root.glob('2020-*/Down/'))[3]
-    print(vid_dir)
-    video = LandmarksVideo(vid_dir, include_landmarks=True)
+    video = LandmarksVideo(data_root, include_landmarks=False)
     print(video.fps)
-    app = App(root, video, save_file='data/robust_triplets.csv')
+    app = App(root, video)
     root.mainloop()
 
 

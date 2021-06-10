@@ -137,7 +137,7 @@ class LandmarksVideo(object):
         self.video = Video(vid_file)
         self.length = len(self.video)
         self.landmarks = LandmarkDataset(landmarks_file, normalize=False, smooth=smooth)
-#         self.normalized_landmarks = LandmarkDataset(landmarks_file, normalize=True)
+        self.normalized_landmarks = LandmarkDataset(landmarks_file, normalize=True)
         self.body_parts = list(self.landmarks.body_parts)
 
     def __len__(self):
@@ -168,10 +168,12 @@ class LandmarksVideo(object):
                                                                                       self.video.shape).astype(np.int)
         cut_frames = frames[:, min_xy[1]:max_xy[1], min_xy[0]:max_xy[0]].copy()
         if self.include_landmarks:
-            for i in range(len(landmarks)):
+            for i in range(len(frames)):
                 for j, part in enumerate(self.landmarks.body_parts):
                     x, y = landmarks[i, j].astype(np.int) - min_xy
-                    cv.circle(cut_frames[i], (x, y), 5, self.color_pallete[j], -1)
+                    likelihood = self.landmarks.df.iloc[s].iloc[j][part]['likelihood']
+                    color = [int(c * likelihood) for c in self.color_pallete[j]]
+                    cv.circle(cut_frames[i], (x, y), 5, color, -1)
         return cut_frames
 
     def __getattr__(self, att):

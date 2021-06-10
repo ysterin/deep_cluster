@@ -21,6 +21,30 @@ from sklearn.metrics import normalized_mutual_info_score, confusion_matrix, accu
 
 pd.set_option('mode.chained_assignment', None)
 
+def get_encoder_decoder(n_neurons, activation_func=nn.ELU(), dropout=0., batch_norm=False):
+    n_layers = len(n_neurons) - 1
+    layers = list()
+    for i in range(n_layers):
+        layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
+        if i+1 < n_layers:
+            layers.append(activation_func)
+            if batch_norm:
+                layers.append(nn.BatchNorm1D(n_neurons[i+1]))
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+    encoder = nn.Sequential(*layers)
+    layers = list()
+    n_neurons = n_neurons[::-1]
+    for i in range(n_layers):
+        layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
+        if i+1 < n_layers:
+            layers.append(activation_func)
+            if batch_norm:
+                layers.append(nn.BatchNorm1D(n_neurons[i+1]))
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+    decoder = nn.Sequential(*layers)
+    return encoder, decoder
 
 # A simple autoencoder
 class Autoencoder(nn.Module):
@@ -31,28 +55,29 @@ class Autoencoder(nn.Module):
             self.loss_func = loss_func
         else:
             self.loss_func = F.mse_loss
-        n_layers = len(n_neurons) - 1
-        layers = list()
-        for i in range(n_layers):
-            layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
-            if i+1 < n_layers:
-                layers.append(nn.ELU())
-                if batch_norm:
-                    layers.append(nn.BatchNorm1D(n_neurons[i+1]))
-                if dropout > 0:
-                    layers.append(nn.Dropout(dropout))
-        self.encoder = nn.Sequential(*layers)
-        layers = list()
-        n_neurons = n_neurons[::-1]
-        for i in range(n_layers):
-            layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
-            if i+1 < n_layers:
-                layers.append(nn.ELU())
-                if batch_norm:
-                    layers.append(nn.BatchNorm1D(n_neurons[i+1]))
-                if dropout > 0:
-                    layers.append(nn.Dropout(dropout))
-        self.decoder = nn.Sequential(*layers)
+        self.encoder, self.decoder = get_encoder_decoder(n_neurons, nn.ELU(), dropout=dropout)
+#         n_layers = len(n_neurons) - 1
+#         layers = list()
+#         for i in range(n_layers):
+#             layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
+#             if i+1 < n_layers:
+#                 layers.append(nn.ELU())
+#                 if batch_norm:
+#                     layers.append(nn.BatchNorm1D(n_neurons[i+1]))
+#                 if dropout > 0:
+#                     layers.append(nn.Dropout(dropout))
+#         self.encoder = nn.Sequential(*layers)
+#         layers = list()
+#         n_neurons = n_neurons[::-1]
+#         for i in range(n_layers):
+#             layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
+#             if i+1 < n_layers:
+#                 layers.append(nn.ELU())
+#                 if batch_norm:
+#                     layers.append(nn.BatchNorm1D(n_neurons[i+1]))
+#                 if dropout > 0:
+#                     layers.append(nn.Dropout(dropout))
+#         self.decoder = nn.Sequential(*layers)
         
     def forward(self, x):
         return self.decoder(self.encoder(x))
@@ -86,45 +111,45 @@ class Autoencoder(nn.Module):
     
 #pytorch-lightning module for training the autoencoder
 class PLAutoencoder(pl.LightningModule):
-    def __init__(self, landmark_files, n_neurons=[203, 128, 128, 7], lr=1e-3, seqlen=30, patience=20, batch_norm=False, wd=0.05, diff=False):
+    def __init__(self, landmark_files=None, n_neurons=[203, 128, 128, 7], lr=1e-3, patience=20, batch_norm=False, wd=0.05, dropout=0.0):
         super(PLAutoencoder, self).__init__()
         self.landmark_files = landmark_files
-        self.seqlen, self.diff = seqlen, diff
+#         self.seqlen, self.diff = seqlen, diff
         self.hparams = {'lr': lr, 'patience': patience, 'wd': wd}
-        self.model = Autoencoder(n_neurons, batch_norm)
+        self.model = Autoencoder(n_neurons, dropout=dropout)
 
     def forward(self, x):
         return self.model(x)
     
-    def prepare_data(self):
-        landmark_datasets = []
-        for file in self.landmark_files:
-            try:
-                ds = LandmarkDataset(file)
-                landmark_datasets.append(ds)
-            except OSError:
-                pass
-        self.body_parts = landmark_datasets[0].body_parts
-        coords = [sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for ds in landmark_datasets]
-        N, n_coords, _ = coords[0].shape
-        self.coords = coords
-        train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in coords]
-        valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in coords]
-        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=self.diff) for data in train_data]
-        valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=10, diff=self.diff) for data in valid_data]
-        self.train_ds = ConcatDataset(train_dsets)
-        self.valid_ds = ConcatDataset(valid_dsets)
-        all_data = [crds.reshape(-1, n_coords*2) for crds in coords]
-        all_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=self.diff) for data in all_data]
-        self.all_ds = ConcatDataset(all_dsets)
+    # def prepare_data(self):
+    #     landmark_datasets = []
+    #     for file in self.landmark_files:
+    #         try:
+    #             ds = LandmarkDataset(file)
+    #             landmark_datasets.append(ds)
+    #         except OSError:
+    #             pass
+    #     self.body_parts = landmark_datasets[0].body_parts
+    #     coords = [sig.decimate(ds.coords, q=240 // landmarks_datasets[0].fps, axis=0).astype(np.float32) for ds in landmark_datasets]
+    #     N, n_coords, _ = coords[0].shape
+    #     self.coords = coords
+    #     train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in coords]
+    #     valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in coords]
+    #     train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=self.diff) for data in train_data]
+    #     valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=10, diff=self.diff) for data in valid_data]
+    #     self.train_ds = ConcatDataset(train_dsets)
+    #     self.valid_ds = ConcatDataset(valid_dsets)
+    #     all_data = [crds.reshape(-1, n_coords*2) for crds in coords]
+    #     all_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=1, diff=self.diff) for data in all_data]
+    #     self.all_ds = ConcatDataset(all_dsets)
         
 
-    def train_dataloader(self):
-        return DataLoader(self.train_ds, batch_size=256, shuffle=True, num_workers=4)
+    # def train_dataloader(self):
+    #     return DataLoader(self.train_ds, batch_size=256, shuffle=True, num_workers=4)
 
-    def val_dataloader(self):
-        # dataset = SequenceDataset(X_val, seqlen=30, step=5, diff=True)
-        return DataLoader(self.valid_ds, batch_size=256, shuffle=False, num_workers=4)
+    # def val_dataloader(self):
+    #     # dataset = SequenceDataset(X_val, seqlen=30, step=5, diff=True)
+    #     return DataLoader(self.valid_ds, batch_size=256, shuffle=False, num_workers=4)
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), self.hparams['lr'], weight_decay=self.hparams['wd'])
