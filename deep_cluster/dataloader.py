@@ -121,7 +121,7 @@ def process_df(df, fps=120):
 
 '''
 rotate the coordinates in the data frame to standard coordinate system, with the tailbase at (0,0).
-args:va
+args:
     df: data frame with coordinates.
 '''
 def standardize_df(df, lock_theta=False):

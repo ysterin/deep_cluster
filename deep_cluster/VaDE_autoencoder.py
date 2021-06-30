@@ -161,8 +161,8 @@ def clustering_accuracy(gt, labels):
 
 class VaDE(pl.LightningModule):
     def __init__(self, 
-                 landmark_files, 
-                 seqlen, n_neurons=[1440, 512, 256, 10], 
+                 landmark_files, data_module,
+                 n_neurons=[1440, 512, 256, 10], 
                  batch_norm=False, 
                  k=10, 
                  lr=1e-3, 
@@ -175,7 +175,8 @@ class VaDE(pl.LightningModule):
         self.k = k
         if log_func:
             self.log = log_func
-        self.seqlen = seqlen
+        # self.seqlen = seqlen
+        self.data_module = data_module
         self.landmark_files = landmark_files
         self.n_neurons, self.batch_norm = n_neurons, batch_norm
         self.hparams = {'lr': lr}
@@ -208,6 +209,10 @@ class VaDE(pl.LightningModule):
         elif pretrain:
             self.init_params()
 
+    @property
+    def model(self):
+        return self
+
     def load_init_params(self, init_gmm, pretrained_model):
         self.mixture_logits.data = torch.Tensor(np.log(init_gmm.weights_))
         self.mu_c.data = torch.Tensor(init_gmm.means_.T)
@@ -222,11 +227,11 @@ class VaDE(pl.LightningModule):
     def init_params(self):
         self.prepare_data()
         pretrain_model = SimpleAutoencoder(self.n_neurons, batch_norm=self.batch_norm, lr=1e-3)
-        pretrain_model.val_dataloader = self.val_dataloader
-        pretrain_model.train_dataloader = self.train_dataloader
-        trainer = pl.Trainer(gpus=1, max_epochs=15, progress_bar_refresh_rate=10, logger=pl.loggers.WandbLogger('AE pretrain'))
-        trainer.fit(pretrain_model)
-        dataset = self.all_ds
+        # pretrain_model.val_dataloader = self.val_dataloader
+        # pretrain_model.train_dataloader = self.train_dataloader
+        trainer = pl.Trainer(gpus=1, max_epochs=5, progress_bar_refresh_rate=10, logger=pl.loggers.WandbLogger('AE pretrain'))
+        trainer.fit(pretrain_model, self.data_module)
+        dataset = self.data_module.all_ds
         X_encoded = pretrain_model.encode_ds(dataset)
         init_gmm = GaussianMixture(self.k, covariance_type='diag')
         init_gmm.fit(X_encoded)
@@ -290,36 +295,36 @@ class VaDE(pl.LightningModule):
         return result
         # return loss.mean(), x_recon_loss.mean(), kl_loss.mean(), mse_loss.mean()
 
-    def prepare_data(self):
-        landmark_datasets = {}
-        for file in self.landmark_files:
-            try:
-                ds = LandmarkDataset(file)
-                landmark_datasets[file] = ds
-            except OSError:
-                pass
-        self.landmark_datasets = landmark_datasets
-        self.landmark_files = list(self.landmark_datasets.keys())
-        coords_dict = {file: sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for file, ds in landmark_datasets.items()}
-        self.coords = [coords_dict[file] for file in self.landmark_files]
-        N, n_coords, _ = self.coords[0].shape
-        train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in self.coords]
-        valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in self.coords]
-        train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=5, diff=False) for data in train_data]
-        valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=20, diff=False) for data in valid_data]
-        self.train_ds = ConcatDataset(train_dsets)
-        self.valid_ds = ConcatDataset(valid_dsets)
-        all_data = {file: crds.reshape(-1, n_coords*2) for file, crds in coords_dict.items()}
-        self.all_dsets_dict = {file: SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for file, data in all_data.items()}
-        self.all_ds = ConcatDataset([self.all_dsets_dict[file] for file in self.landmark_files])
+    # def prepare_data(self):
+    #     landmark_datasets = {}
+    #     for file in self.landmark_files:
+    #         try:
+    #             ds = LandmarkDataset(file)
+    #             landmark_datasets[file] = ds
+    #         except OSError:
+    #             pass
+    #     self.landmark_datasets = landmark_datasets
+    #     self.landmark_files = list(self.landmark_datasets.keys())
+    #     coords_dict = {file: sig.decimate(ds.coords, q=4, axis=0).astype(np.float32) for file, ds in landmark_datasets.items()}
+    #     self.coords = [coords_dict[file] for file in self.landmark_files]
+    #     N, n_coords, _ = self.coords[0].shape
+    #     train_data = [crds[:int(0.8*crds.shape[0])].reshape(-1, n_coords*2) for crds in self.coords]
+    #     valid_data = [crds[int(0.8*crds.shape[0]):].reshape(-1, n_coords*2) for crds in self.coords]
+    #     train_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=5, diff=False) for data in train_data]
+    #     valid_dsets = [SequenceDataset(data, seqlen=self.seqlen, step=20, diff=False) for data in valid_data]
+    #     self.train_ds = ConcatDataset(train_dsets)
+    #     self.valid_ds = ConcatDataset(valid_dsets)
+    #     all_data = {file: crds.reshape(-1, n_coords*2) for file, crds in coords_dict.items()}
+    #     self.all_dsets_dict = {file: SequenceDataset(data, seqlen=self.seqlen, step=1, diff=False) for file, data in all_data.items()}
+    #     self.all_ds = ConcatDataset([self.all_dsets_dict[file] for file in self.landmark_files])
         
     
-    def train_dataloader(self):
-        return DataLoader(self.train_ds, batch_size=256, shuffle=True, num_workers=8)
+    # def train_dataloader(self):
+    #     return DataLoader(self.train_ds, batch_size=256, shuffle=True, num_workers=8)
 
-    def val_dataloader(self):
-        # dataset = SequenceDataset(X_val, seqlen=30, step=5, diff=True)
-        return DataLoader(self.valid_ds, batch_size=256, shuffle=False, num_workers=8)
+    # def val_dataloader(self):
+    #     # dataset = SequenceDataset(X_val, seqlen=30, step=5, diff=True)
+    #     return DataLoader(self.valid_ds, batch_size=256, shuffle=False, num_workers=8)
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), self.hparams['lr'], weight_decay=0.01)
@@ -356,7 +361,7 @@ class VaDE(pl.LightningModule):
 
     def cluster_data(self, dl=None):
         if not dl:
-            dl = self.val_dataloader()
+            dl = self.data_module.val_dataloader()
         self.eval()
         self.sigma_c = torch.exp(self.logvar_c / 2)
         vade_gmm = D.MixtureSameFamily(D.Categorical(logits=self.mixture_logits), D.Normal(self.mu_c, self.sigma_c))

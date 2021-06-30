@@ -205,7 +205,7 @@ class App(tk.Frame):
             if self.filter_segment(segment):
                 selected_segments.append(segment)
             if n_tries > 1000:
-                raise Exeption("too many tries to sample segments")
+                raise Exception("too many tries to sample segments")
         self.segments = selected_segments
 
         # enc_segments = [slice(idx // 4 + 15, (idx + n_frames) // 4 - 15 + 1) for idx in random_idxs]
