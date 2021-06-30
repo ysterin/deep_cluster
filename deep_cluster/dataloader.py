@@ -11,13 +11,17 @@ from torch.utils.data.dataset import ConcatDataset, Subset, TensorDataset
 from torch.utils.data.dataloader import DataLoader
 pd.set_option('mode.chained_assignment', None)
 from itertools import chain
-
 import numpy as np
 import scipy.signal as sig
 import pandas as pd
 import pytorch_lightning as pl
 
 
+'''
+Interpolate between the values in idxs.
+data: timeseries data
+idxs: problematic idxs to interpolate over, for example if likelihood is small or there are abrupt jumps.
+'''
 def interpolate_indexes(data, idxs):
     segments = np.split(idxs, np.where(np.diff(idxs) > 1)[0] + 1)
     for seg in segments:
@@ -32,6 +36,7 @@ def interpolate_indexes(data, idxs):
     return data
 
 
+# Interpolate over masked values.
 def interpolate_mask(data, mask):
     idxs = np.where(mask)[0]
     return interpolate_indexes(data, idxs)
@@ -41,6 +46,7 @@ def clear_low_likelihood(data, likelihood, thresh=0.8):
     return interpolate_mask(data, likelihood < thresh)
 
 
+# find outlier values with high pass filter and interploate over them using 
 def clear_outliers(data, hpf_freq=30, fs=240):
     cutoff = fs / hpf_freq
     filt = sig.butter(4, hpf_freq, btype='high', output='ba', fs=fs)
@@ -48,29 +54,40 @@ def clear_outliers(data, hpf_freq=30, fs=240):
     return interpolate_mask(data, np.abs(filtered) > cutoff)
 
 
-def smooth(data, lpf_freq=10, fs=240):
+# smooth data with low pass filter
+def smooth(data, lpf_freq=20, fs=240):
     filt = sig.butter(4, lpf_freq, btype='low', output='ba', fs=fs)
     filtered = sig.filtfilt(*filt, data)
     return filtered
 
 
-def preproc(data, likelihood, fps=120):
-    data = clear_low_likelihood(data, likelihood)
+# preprocess (landmarks) timeseries - interpolate over low likelihood segments and outliers and abrupt jumps, and smooth with low-pass filter
+def preproc(data, likelihood=None, fps=120):
+    if not likelihood is None:
+        data = clear_low_likelihood(data, likelihood)
     return smooth(clear_outliers(data, fs=fps), fs=fps)
 
 import os
 
+
+# find the video file for the landmarks file, assuming it is in the same folder.
 def find_video_file(df_file: Path):
-    file_id = re.match(r'^(\d+)', df_file.name).groups()[0]
-    file_dir = df_file.parent
-    video_file = file_dir / f'{file_id}.MP4'
+    try:
+        video_file = list(df_file.parent.glob(r'00*.MP4'))[0]
+    except IndexError:
+        raise Exception(f"video file does no exist in {df_file.parent}")
+#     video_file = file_dir / f'{file_id}.MP4'
+    if len(list(df_file.parent.glob(r'00*.MP4'))) > 1:
+        raise Exception('more than one video file in folder')
     assert os.path.exists(video_file), f'file {video_file} does not exist!'
     return video_file
 
 
+# load landmarks file 
 def read_df(df_file):
     df = pd.read_hdf(df_file)
-    df.columns = df.columns.droplevel(0)
+    if len(df.columns.levels) > 2:
+        df.columns = df.columns.droplevel(0)
     df.index.name = 'index'
     df.index = df.index.map(int)
     df = df.applymap(float)
@@ -87,10 +104,15 @@ def process_df(df, fps=120):
     body_parts = df.columns.levels[0]
     # body_parts = pd.unique([col[0] for col in df.columns])
     smoothed_data = {}
-    for part in body_parts:
-        smoothed_data[(part, 'x')] = preproc(df[part].x, df[part].likelihood, fps=fps)
-        smoothed_data[(part, 'y')] = preproc(df[part].y, df[part].likelihood, fps=fps)
-        smoothed_data[(part, 'likelihood')] = df[part].likelihood.copy()
+    if 'likelihood' in df.columns.levels[1]:
+        for part in body_parts:
+            smoothed_data[(part, 'x')] = preproc(df[part].x, df[part].likelihood, fps=fps)
+            smoothed_data[(part, 'y')] = preproc(df[part].y, df[part].likelihood, fps=fps)
+            smoothed_data[(part, 'likelihood')] = df[part].likelihood.copy()
+    else:
+        for part in body_parts:
+            smoothed_data[(part, 'x')] = preproc(df[part].x, None, fps=fps)
+            smoothed_data[(part, 'y')] = preproc(df[part].y, None, fps=fps)
 
     smooth_df = pd.DataFrame.from_dict(smoothed_data)
     smooth_df.attrs = df.attrs
@@ -156,11 +178,11 @@ def extract_coordinates(df: pd.DataFrame, normalize: bool = True):
     normalized_coords = np.einsum("nij,nkj->nki", rotation_matrices, centered_coords)
     return normalized_coords
 
+# find cotiguous segments with high likelihood in the landmarks timeseries. 
 def find_segments(df, threshold=0.95, min_length=60):
     df = df.copy()
     body_parts = df.columns.levels[0]
     confidence = np.prod(np.stack([df[bp].likelihood.values for bp in body_parts]), axis=0)
-    # high_confidence_bool = np.logical_and(df.confidence > 0.99, smooth(df.confidence, lpf_freq=1.0, fs=video.fps) > 0.99)
     idxs = np.where(confidence > threshold)[0]
     segments = np.split(idxs, np.where(np.diff(idxs) > 1)[0] + 1)
     segments = [seg for seg in segments if len(seg) > min_length]
@@ -184,7 +206,6 @@ class LandmarkDataset(data.Dataset):
         if smooth:
             self.df = process_df(self.df, fps=fps)
         self.coords = extract_coordinates(self.df, normalize)
-        # self.body_parts = pd.unique([col[0] for col in self.df.columns])
         self.body_parts = self.df.columns.levels[0]
         
     def __getitem__(self, idx):
@@ -193,26 +214,29 @@ class LandmarkDataset(data.Dataset):
     def __len__(self):
         return self.coords.shape[0]
 
+'''
+A dataset of fratures for landmarks.
+Needs "extract_features" function to extract the features.
+'''
+# class FeaturesDataset(data.Dataset):
+#     def __init__(self, landmarks_file, normalize=True):
+#         super(FeaturesDataset, self).__init__()
+#         self.file = landmarks_file
+#         self.df = read_df(landmarks_file)
+#         self.df = process_df(self.df)
+#         self.features = extract_features(self.df)
+#         # self.coords = extract_coordinates(self.df, normalize)
+#         # body_parts = df.columns.levels[0]
 
-class FeaturesDataset(data.Dataset):
-    def __init__(self, landmarks_file, normalize=True):
-        super(FeaturesDataset, self).__init__()
-        self.file = landmarks_file
-        self.df = read_df(landmarks_file)
-        self.df = process_df(self.df)
-        self.features = extract_features(self.df)
-        # self.coords = extract_coordinates(self.df, normalize)
-        # body_parts = df.columns.levels[0]
+#     def __getitem__(self, idx):
+#         return self.features[idx]
 
-    def __getitem__(self, idx):
-        return self.features[idx]
+#     def __len__(self):
+#         return self.features.shape[0]
 
-    def __len__(self):
-        return self.features.shape[0]
-
-    @property
-    def n_features(self):
-        return self.features.shape[1]
+#     @property
+#     def n_features(self):
+#         return self.features.shape[1]
 
 
 def calc_wavelet_transform(feature_data, min_width=12, max_width=120, n_waves=25):
@@ -224,8 +248,14 @@ def calc_wavelet_transform(feature_data, min_width=12, max_width=120, n_waves=25
 
 # A dataset of wavelets of landmarks.
 # args: landmarks file: .h5 file of landmarks, from DeepLabCut
+'''
+A dataset of wavelets of landmarks.
+args: landmarks file: .h5 file of landmarks, from DeepLabCut or HourGlass
+      normalize: wether to normalize the landmraks first (to a single coordinate frame)
+      data: used for slicing the dataset, should always be None (the default) when calling __init__
+'''
 class LandmarkWaveletDataset(utils.data.Dataset):
-    def __init__(self, landmarks_file, normalize=True, data=None, eps=3e-2):
+    def __init__(self, landmarks_file, normalize=True, data=None):
         super(LandmarkWaveletDataset, self).__init__()
         self.file = landmarks_file
         self.normalize = normalize
@@ -315,8 +345,10 @@ class SequenceDataset(data.Dataset):
         item = (item - self.mean) / (self.std + self.eps)
         return item
 
-    
+
+# Find the original dataset for idx, from a concatenation of datasts (ConcatDataset)
 def find_sub_dataset_idx(ds: ConcatDataset, idx):
+    assert isinstance(ds, ConcatDataset)
     dataset_idx = bisect.bisect_right(ds.cumulative_sizes, idx)
     if dataset_idx == 0:
         sample_idx = idx
@@ -325,40 +357,54 @@ def find_sub_dataset_idx(ds: ConcatDataset, idx):
     return dataset_idx, sample_idx
 
 
+# find the video file and frame number for a specific timestep (idx) in the landmarks dataset (ds) 
 def find_frame(ds, idx):
     ds_id, idx = find_sub_dataset_idx(ds, idx)
     ds = ds.datasets[ds_id]
     if isinstance(ds, Subset):
         ds, idx = ds.dataset, ds.indices[idx]
-    ds_id, idx = find_sub_dataset_idx(ds, idx)
-    ds = ds.datasets[ds_id]
+    if isinstance(ds, ConcatDataset):
+        ds_id, idx = find_sub_dataset_idx(ds, idx)
+        ds = ds.datasets[ds_id]
     video_file = ds.data_frame.attrs['video_file']
     frame_idxs = ds.get_indexes(idx)
     return video_file, frame_idxs
 
+# filter segments by energy
 def filter_segments_by_energy(min_energy=1e-7):
     def filter(segment_df):
         data = segment_df.values.astype(np.float32)
         ff, Pxx = sig.periodogram(data.T, fs=segment_df.attrs['fps'])
         energy = Pxx.mean()
         return energy > min_energy
+    return filter
 
-
+# drop unused parts from the dataframe.
 def drop_parts(df, parts):
     if not parts:
         return df
+    parts = [part for part in parts if part in df.columns.levels[0]]
     df = df.drop(labels=parts, axis=1, level=0)
     df.columns = df.columns.remove_unused_levels()
     return df
 
+
+'''
+Pytorch Lightning DataModule for landmarks data, contains both training and validation datasets.
+'''
 class LandmarksDataModule(pl.LightningDataModule):
-    def __init__(self, landmark_files, fps=120, seqlen=60, step=30, bs=32, to_drop=['tail2']):
+    def __init__(self, landmark_files, fps=120, seqlen=60, step=30, bs=32, to_drop=['tail2'], filter_by_likelihood=False):
         super(LandmarksDataModule, self).__init__()
         self.landmark_files = landmark_files
         self.bs = bs
         self.fps, self.seqlen, self.step = fps, seqlen, step
         self.to_drop = to_drop
+        self.filter_by_likelihood = filter_by_likelihood
 
+    '''
+    read the landmarkk files and preprocess them.
+    can filter the data according to likelihood.
+    '''
     def prepare_data(self, *args, **kwargs):
         data_frames = list(map(read_df, self.landmark_files))
         self.raw_data = data_frames
@@ -367,14 +413,18 @@ class LandmarksDataModule(pl.LightningDataModule):
         data_frames = list(map(standardize_df, data_frames))
         all_df = pd.concat(data_frames)
         data_frames = list(map(lambda df: normalize_df(df, all_df.mean(), all_df.std()), data_frames))
-        segments_list = list(map(find_segments, data_frames))
-        self.segments_list = segments_list
-        data_frames = list(map(lambda df:  df.drop(axis=1, columns='likelihood', level=1), data_frames))
-        segment_dfs = [[df.iloc[seg] for seg in segments] for df, segments in zip(data_frames, segments_list)]
-        # segment_dfs = [[df.drop(axis=1, columns='likelihood', level=1) for df in dfs] for dfs in segment_dfs]
-        sequence_datasets = [[SequenceDataset(df, seqlen=self.seqlen, step=self.step, diff=False) for df in dfs]
-                                 for dfs in segment_dfs]
-        datasets = [ConcatDataset(dsets) for dsets in sequence_datasets]
+        if self.filter_by_likelihood and 'likelihood' in data_frames[0].columns.levels[1]:
+            segments_list = list(map(find_segments, data_frames))
+            self.segments_list = segments_list
+            data_frames = list(map(lambda df:  df.drop(axis=1, columns='likelihood', level=1), data_frames))
+            segment_dfs = [[df.iloc[seg] for seg in segments] for df, segments in zip(data_frames, segments_list)]
+            sequence_datasets = [[SequenceDataset(df, seqlen=self.seqlen, step=self.step, diff=False) for df in dfs]
+                                     for dfs in segment_dfs]
+            datasets = [ConcatDataset(dsets) for dsets in sequence_datasets]
+        else:
+            if 'likelihood' in data_frames[0].columns.levels[1]:
+                data_frames = list(map(lambda df: df.drop(columns='likelihood', axis=1, level=1), data_frames))
+            datasets = [SequenceDataset(df, seqlen=self.seqlen, step=self.step, diff=False) for df in data_frames]
         train_dsets = [Subset(ds, range(0, int(0.8 * len(ds)))) for ds in datasets]
         valid_dsets = [Subset(ds, range(int(0.8 * len(ds)), len(ds))) for ds in datasets]
         self.train_ds = ConcatDataset(train_dsets)
@@ -383,9 +433,6 @@ class LandmarksDataModule(pl.LightningDataModule):
         self.data_frames = data_frames
         self.datasets = datasets
         self.all_df = all_df
-
-    def find_frame(self, ):
-        pass
     
     def train_dataloader(self, *args, **kwargs) -> DataLoader:
         return DataLoader(self.train_ds, batch_size=self.bs, shuffle=True)

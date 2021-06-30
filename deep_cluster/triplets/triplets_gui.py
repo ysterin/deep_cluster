@@ -23,7 +23,6 @@ from multiprocessing import Process
 from deep_cluster.triplets.landmarks_video import Video, LandmarksVideo
 from deep_cluster.triplets.sample_triplets import Segment, triplets_segments_gen, load_segments
 import math
-from memory_profiler import profile
 from contextlib import contextmanager
 
 @contextmanager
@@ -186,13 +185,12 @@ class App(tk.Frame):
         
     def filter_segment(self, segment):
         segment_df = self.video.landmarks.df.loc[segment].drop(['tail1', 'tail2', 'tail3'], axis=1, level=0)
-        confidence = np.prod(segment_df.xs('likelihood', level=1, axis=1, drop_level=True) > 0.95, axis=1)
-        if confidence.mean() < 0.9:
+        confidence = np.prod(segment_df.xs('likelihood', level=1, axis=1, drop_level=True) > 0.9, axis=1)
+        if confidence.mean() < 0.8:
             return False
         data = segment_df.drop('likelihood', level=1, axis=1).values.astype(np.float32)
         ff, Pxx = sig.periodogram(data.T, fs=segment_df.attrs['fps'])
         energy = Pxx[:,:10].mean()
-#         print('energy: ', energy)
         if energy < 2e0:
             return False
         return True
@@ -387,7 +385,6 @@ class VerificationApp(tk.Frame):
         self.root.quit()
 
 # data_root = Path("/home/orel/Storage/Data/K6/2020-03-26/Down")
-data_root = Path("/home/orel/Storage/Data/K7/")
 
 #data_root = Path("/mnt/storage2/shuki/data/THEMIS/0015")
 # landmark_file = data_root/'2020-03-23'/'Down'/'0008DeepCut_resnet50_Down2May25shuffle1_1030000.h5'
@@ -396,12 +393,13 @@ data_root = Path("/home/orel/Storage/Data/K7/")
 
 def __main__():
     print(os.getcwd())
+    data_root = Path("/mnt/Storage1/Data/K7/")
     root = tk.Tk()
-    vid_dir = list(data_root.glob('2020-*/Down/'))[3]
+    vid_dir = list(data_root.glob('2020-*/Down/'))[5]
     print(vid_dir)
     video = LandmarksVideo(vid_dir, include_landmarks=True)
     print(video.fps)
-    app = App(root, video, save_file='data/robust_triplets.csv')
+    app = App(root, video, save_file='data/robust_triplets1.csv')
     root.mainloop()
 
 

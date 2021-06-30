@@ -15,6 +15,9 @@ import re
 data_root = Path("/home/orel/Storage/Data/K6/")
 
 
+'''
+a wrapper class of opencv's VideoCapture to work as acontext manager.
+'''
 class VideoCaptureWrapper(object):
     def __init__(self, vid_file, *args, **kwargs):
         self.vid_file = str(vid_file)
@@ -37,6 +40,9 @@ class VideoCaptureWrapper(object):
         return self.vid_stream.get(*args)
 
 
+'''
+A general class for video files. the video can be accessed with indices or slices like an array, or work like an iterator.
+'''
 class Video(object):
     def __init__(self, video_file):
         self.video_file = str(video_file)
@@ -74,7 +80,7 @@ class Video(object):
                 ret, frame = cap.read()
                 if not ret:
                     self.cap.release()
-                    raise Exeption("frame not found")
+                    raise Exception("frame not found")
                 if i % step == 0:
                     frames.append(frame)
         return frames
@@ -101,11 +107,6 @@ def get_files(vid_dir):
     return vid_file, landmarks_file
 
 
-# color_pallete = [(0, 204, 0), (255, 255, 0), (255, 102, 102), (255, 102, 178), (102, 0, 204), (0, 0, 204),
-#                  (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
-#                  (160, 160, 160)]
-
-
 def get_rotation_angle(landmarks, body_parts):
     nose_position = landmarks[body_parts.index('nose')]
     tailbase_position = landmarks[body_parts.index('tailbase')]
@@ -123,11 +124,12 @@ def rotate_frames_and_landmarks(frames, landmarks, body_parts):
     return rot_frames, rot_landmarks
 
 
+'''
+A class specific to the landmark video, uses the landmarks to center around the rat and rotate to a fixed orientation, 
+can also draw the landmarks on the video frames.
+'''
 class LandmarksVideo(object):
     color_pallete = [[int(c*255) for c in color[:3]] for color in cm.tab20.colors]
-    # color_pallete = [(0, 204, 0), (255, 255, 0), (255, 102, 102), (255, 102, 178), (102, 0, 204), (0, 0, 204),
-    #                  (0, 128, 255), (51, 255, 255), (204, 255, 204), (153, 153, 0), (153, 0, 76), (76, 0, 153,),
-    #                  (160, 160, 160)]
 
     def __init__(self, vid_dir=data_root / '2020-03-23' / 'Down', include_landmarks=True, smooth=True):
         self.vid_dir = vid_dir

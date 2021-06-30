@@ -21,6 +21,7 @@ from sklearn.metrics import normalized_mutual_info_score, confusion_matrix, accu
 
 pd.set_option('mode.chained_assignment', None)
 
+
 def get_encoder_decoder(n_neurons, activation_func=nn.ELU(), dropout=0., batch_norm=False):
     n_layers = len(n_neurons) - 1
     layers = list()
@@ -56,28 +57,6 @@ class Autoencoder(nn.Module):
         else:
             self.loss_func = F.mse_loss
         self.encoder, self.decoder = get_encoder_decoder(n_neurons, nn.ELU(), dropout=dropout)
-#         n_layers = len(n_neurons) - 1
-#         layers = list()
-#         for i in range(n_layers):
-#             layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
-#             if i+1 < n_layers:
-#                 layers.append(nn.ELU())
-#                 if batch_norm:
-#                     layers.append(nn.BatchNorm1D(n_neurons[i+1]))
-#                 if dropout > 0:
-#                     layers.append(nn.Dropout(dropout))
-#         self.encoder = nn.Sequential(*layers)
-#         layers = list()
-#         n_neurons = n_neurons[::-1]
-#         for i in range(n_layers):
-#             layers.append(nn.Linear(n_neurons[i], n_neurons[i+1]))
-#             if i+1 < n_layers:
-#                 layers.append(nn.ELU())
-#                 if batch_norm:
-#                     layers.append(nn.BatchNorm1D(n_neurons[i+1]))
-#                 if dropout > 0:
-#                     layers.append(nn.Dropout(dropout))
-#         self.decoder = nn.Sequential(*layers)
         
     def forward(self, x):
         return self.decoder(self.encoder(x))
@@ -121,6 +100,9 @@ class PLAutoencoder(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
     
+    '''
+    unneeded - use LandmarksDataModule instead.
+    '''
     # def prepare_data(self):
     #     landmark_datasets = []
     #     for file in self.landmark_files:
@@ -157,7 +139,6 @@ class PLAutoencoder(pl.LightningModule):
 #         scheduler = {'scheduler': sched, 'interval': 'epoch', 'monitor': 'val_checkpoint_on', 'reduce_on_plateau': True}
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: 0.85**(epoch//10))
         return [opt], [sched]    
-#     return [opt], [scheduler]
     
     def training_step(self, batch, batch_idx):
         loss = self.model.shared_step(batch)
@@ -180,7 +161,7 @@ def DKL_softmax(bx, bx_recon):
     return kl_div(bx_probs, recon_probs).mean()
    
     
-#pytorch-lightning module for training the autoencoder
+#pytorch-lightning module for training Wavelet Autoencoder.
 class PLWaveletAutoencoder(pl.LightningModule):
     def __init__(self, landmark_files, n_neurons=[480, 128, 128, 7], lr=1e-3, n_wavelets=20, patience=20, batch_norm=False, wd=0.05):
         super(PLWaveletAutoencoder, self).__init__()

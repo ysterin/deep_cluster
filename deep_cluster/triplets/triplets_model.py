@@ -138,11 +138,6 @@ class TripletVaDE(pl.LightningModule):
         self.batch_size = batch_size
         self.triplets_file = triplets_file
         self.seqlen = seqlen
-        # self.hparams = {'lr': lr, 'lr_gmm': lr_gmm, 'triplet_loss_margin': triplet_loss_margin, 'triplet_loss_alpha': triplet_loss_alpha}
-        # self.hparams['triplet_loss_margin_kl'] = triplet_loss_margin_kl
-        # self.hparams['batch_size'] = batch_size
-        # self.hparams['triplet_loss_alpha_kl'] = triplet_loss_alpha_kl
-        # self.hparams['warmup_epochs'] = warmup_epochs
         self.landmark_files = landmark_files
         self.n_neurons, self.pretrain_epochs, self.batch_norm = n_neurons, pretrain_epochs, batch_norm
         init_gmm, pretrain_model = self.init_params()

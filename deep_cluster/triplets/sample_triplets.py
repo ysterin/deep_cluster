@@ -11,7 +11,7 @@ class Segment:
         self.cluster_id = cluster_id
         self.start_frame = start_frame
         self.n_frames = n_frames
-        self.encoded_mean = x_encoded[self.start_frame // 4: self.start_frame // 4 + self.n_frames // 4].mean(axis=0)
+        self.encoded_mean = x_encoded[self.start_frame : self.start_frame + self.n_frames].mean(axis=0)
 
 
 def load_segments(model_dir, landmark_file):
@@ -92,8 +92,7 @@ def triplets_segments_gen(segments, n_triplets=100):
                 continue
             if max([seg.n_frames for seg in [anchor, pos, neg]]) > 480:
                 continue
-            if max([seg.n_frames for seg in [anchor, pos, neg]]) / min \
-                    ([seg.n_frames for seg in [anchor, pos, neg]]) > 3:
+            if max([seg.n_frames for seg in [anchor, pos, neg]]) / min([seg.n_frames for seg in [anchor, pos, neg]]) > 3:
                 continue
             yield anchor, pos, neg
         except Exception:

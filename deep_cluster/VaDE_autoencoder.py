@@ -34,6 +34,7 @@ def get_autoencoder(n_neurons, batch_norm=True):
                                             else nn.ELU()) \
                            for i in range(n_layers - 1)])
 
+
 def get_encoder_decoder(n_neurons, batch_norm=True):
     n_layers = len(n_neurons) - 1
     encoder_layers = [nn.Sequential(nn.Linear(n_neurons[i], n_neurons[i+1]),
@@ -52,10 +53,7 @@ class SimpleAutoencoder(pl.LightningModule):
     def __init__(self, n_neurons=[1440, 512, 256, 10], lr=1e-3, batch_norm=True):
         super(SimpleAutoencoder, self).__init__()
         self.hparams = {'lr': lr}
-        # self.model = get_autoencoder(n_neurons, batch_norm)
         self.encoder, self.decoder = get_encoder_decoder(n_neurons, batch_norm)
-        # self.encoder = self.model[:len(n_neurons) - 1]
-        # self.decoder = self.model[len(n_neurons) - 1:]
 
     def forward(self, x):
         return self.decoder(self.encoder(x))
@@ -233,14 +231,6 @@ class VaDE(pl.LightningModule):
         init_gmm = GaussianMixture(self.k, covariance_type='diag')
         init_gmm.fit(X_encoded)
         self.load_init_params(init_gmm, pretrain_model)
-#         self.mixture_logits.data = torch.Tensor(np.log(init_gmm.weights_))
-#         self.mu_c.data = torch.Tensor(init_gmm.means_.T)
-#         self.logvar_c.data = torch.Tensor(init_gmm.covariances_.T).log()
-# #         self.sigma_c.data = torch.Tensor(init_gmm.covariances_.T).sqrt()
-#         self.encoder.load_state_dict(pretrain_model.encoder[:-1].state_dict())
-#         self.decoder.load_state_dict(pretrain_model.decoder[:-1].state_dict())
-#         self.latent_dist.mu_fc.load_state_dict(pretrain_model.encoder[-1].state_dict())
-#         self.out_dist.mu_fc.load_state_dict(pretrain_model.decoder[-1].state_dict())
 
     def forward(self, bx):
         x = self.encoder(bx)
